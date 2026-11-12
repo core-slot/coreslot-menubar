@@ -82,6 +82,8 @@ struct WaitingRow: Identifiable {
     let reason: String?
     let waited: String
     let trailing: String?
+    /// coreslot accepted a cancel; the row says so until the ticket leaves the queue.
+    let cancelRequested: Bool
 }
 
 /// The last 30 minutes and a forecast zone of a fifth of the width, as fractions of the width.
@@ -213,8 +215,8 @@ extension Store {
             progress: typical > 0 ? min(1, h.heldForS / Double(typical)) : nil, figures: figures,
             spark: points.count >= 2 ? points.map { Double($0.footprintMiB) / top } : [],
             peakIndex: points.count >= 2 ? points.lastIndex { $0.footprintMiB == peak } : nil,
-            stoppable: h.stoppable == true,
-            quiet: Words.quietLine(container: h.container == true, processChecked: true))
+            stoppable: h.stoppable == true && !unchecked.contains(h.name),
+            quiet: Words.quietLine(container: h.container == true, processChecked: !unchecked.contains(h.name)))
     }
 
     private func waitingRow(_ t: StatusDocument.Ticket, first: Bool, recordOff: Bool) -> WaitingRow {
@@ -233,7 +235,8 @@ extension Store {
         }
         return WaitingRow(
             ticket: t, label: SafeText.display(t.label), color: color(t.label), reason: reason,
-            waited: "waited \(Formatting.duration(Int64(t.waitedS.rounded())))", trailing: trailing)
+            waited: "waited \(Formatting.duration(Int64(t.waitedS.rounded())))", trailing: trailing,
+            cancelRequested: cancelRequested.contains(t.id))
     }
 
     private func runs(ticketName: String) -> Runs.Attempt? { record.runs.waiting(ticketName: ticketName) }

@@ -14,6 +14,9 @@ struct Feed: Sendable {
     var clock: @Sendable () -> Date = { Date() }
     /// Fixtures only: the record's state as the variant names it, not as the app's clock finds it.
     var record: RecordState? = nil
+    var inspector: any ProcessInspector = DarwinProcessInspector()
+    /// Sends a signal; 0 or the errno.
+    var signal: @Sendable (pid_t, Int32) -> Int32 = { kill($0, $1) == 0 ? 0 : errno }
 
     static let live = Feed(
         locate: {
@@ -37,6 +40,10 @@ final class Store {
     private(set) var report: Report?
     /// Each label's colour, by order of first sight; a new label never repaints the others.
     private(set) var labelColors: [String: Int] = [:]
+    /// Tickets whose cancel coreslot accepted, until they leave the queue.
+    private(set) var cancelRequested: Set<String> = []
+    /// Holds whose process the app could not read: no stop button, and the quiet line says so.
+    private(set) var unchecked: Set<String> = []
 
     @ObservationIgnored let feed: Feed
     @ObservationIgnored private let reader = RecordReader()
@@ -47,6 +54,8 @@ final class Store {
     @ObservationIgnored private var holdLiveSince: Date?
     @ObservationIgnored private var reportAt: Date?
     @ObservationIgnored private var reportTask: Task<Void, Never>?
+    /// One confirmation at a time.
+    @ObservationIgnored private var acting = false
 
     init(feed: Feed) { self.feed = feed }
 
@@ -80,13 +89,50 @@ final class Store {
         }
     }
 
-    /// Asks before withdrawing a waiting request. Not wired yet: the confirmation and the
-    /// `coreslot cancel` come with the actions.
-    func askToCancel(_ ticket: StatusDocument.Ticket) {}
+    /// Asks before withdrawing a waiting request, then runs `coreslot cancel`.
+    func askToCancel(_ ticket: StatusDocument.Ticket) {
+        guard let binary, !acting else { return }
+        acting = true
+        Task {
+            defer { acting = false }
+            guard Confirm.ask(AlertText.cancel(ticket)) else { return }
+            switch await cancel(ticketID: ticket.id, using: binary, runner: feed.runner) {
+            case .requested: cancelRequested.insert(ticket.id)
+            case .refused(let now):
+                await ingest(now)
+                Confirm.tell(AlertText.cancelRefused(ticketID: ticket.id, now: now))
+            case .failed(let problem): Confirm.tell(AlertText.cancelFailed(problem))
+            }
+        }
+    }
 
-    /// Asks before stopping a running command. Not wired yet: the confirmation, the process
-    /// checks and the signal come with the actions.
-    func askToStop(_ hold: StatusDocument.Hold) {}
+    /// Checks the hold's process, asks, checks again, and only then sends `SIGTERM`.
+    func askToStop(_ hold: StatusDocument.Hold) {
+        guard let binary, !acting else { return }
+        acting = true
+        let (runner, inspector) = (feed.runner, feed.inspector)
+        Task {
+            defer { acting = false }
+            let shown = await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector)
+            guard case .ready(let pid, let facts) = shown else { return tell(stop: shown) }
+            guard Confirm.ask(AlertText.stop(hold, pid: pid, facts: facts)) else { return }
+            let again = recheck(await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector), shown: shown)
+            guard case .ready = again else { return tell(stop: again) }
+            let outcome = sendStop(again, inspector: inspector, signal: feed.signal)
+            #if DEBUG
+            FileHandle.standardError.write(Data("stop \(outcome)\n".utf8))
+            #endif
+            if let words = AlertText.stopOutcome(outcome) { Confirm.tell(words) }
+            await source?.readNow()
+        }
+    }
+
+    private func tell(stop c: StopCheck) {
+        #if DEBUG
+        FileHandle.standardError.write(Data("stop \(c)\n".utf8))
+        #endif
+        if let words = AlertText.refusal(c) { Confirm.tell(words) }
+    }
 
     private func run() async {
         while binary == nil && !Task.isCancelled {
@@ -125,6 +171,8 @@ final class Store {
             }
         }
         holdLiveSince = doc?.holds.isEmpty == false ? holdLiveSince ?? at : nil
+        cancelRequested.formIntersection(doc?.tickets.filter { $0.state != "dead" }.map(\.id) ?? [])
+        unchecked = Set((doc?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name))
         let dir = feed.stateDir ?? doc.flatMap { $0.stateDir.isEmpty ? nil : URL(filePath: $0.stateDir, directoryHint: .isDirectory) }
         let snapshot = await reader.update(stateDir: dir, doc: doc, at: at)
         if snapshot.newSamples > 0 { lastSample = at }
@@ -138,6 +186,12 @@ final class Store {
         FileHandle.standardError.write(Data("reading \(icon) \(summary) record \(recordState)\n".utf8))
         #endif
         if !visible.isEmpty { refreshReport() }
+        #if DEBUG
+        if let label = Present.askStop, let h = doc?.holds.first(where: { $0.label == label && $0.stoppable == true }) {
+            Present.askStop = nil
+            askToStop(h)
+        }
+        #endif
     }
 
     /// `coreslot report --days 1 --json`, at most once a minute: coreslot does the counting.

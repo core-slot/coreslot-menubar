@@ -4,6 +4,8 @@ import SwiftUI
 struct ListsSection: View {
     let store: Store
     let live: PopoverModel.Live
+    /// Closes the popover: a confirmation is a standard alert outside it.
+    @Environment(\.dismiss) private var dismiss
     private static let runningHeight: CGFloat = 62
     private static let waitingHeight: CGFloat = 44
 
@@ -15,14 +17,14 @@ struct ListsSection: View {
             if !live.running.isEmpty {
                 SectionTitle(text: "Running", count: live.running.count)
                 Rows(items: live.running, visible: 4, height: Self.runningHeight) { row in
-                    RunningRowView(row: row) { store.askToStop(row.hold) }
+                    RunningRowView(row: row) { dismiss(); store.askToStop(row.hold) }
                 }
             }
             if !live.waiting.isEmpty {
                 if !live.running.isEmpty { Divider() }
                 SectionTitle(text: "Waiting", count: live.waiting.count)
                 Rows(items: live.waiting, visible: 5, height: Self.waitingHeight) { row in
-                    WaitingRowView(row: row) { store.askToCancel(row.ticket) }
+                    WaitingRowView(row: row) { dismiss(); store.askToCancel(row.ticket) }
                 }
                 if let note = live.recordNote {
                     Text(note).font(.caption).foregroundStyle(.secondary)
@@ -135,7 +137,11 @@ struct WaitingRowView: View {
                 Circle().strokeBorder(Palette.label(row.color), lineWidth: 1.5).frame(width: 7, height: 7)
                 Text(row.label).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 6)
-                if hovering || reveal { RowAction(title: "Cancel request", symbol: "xmark.circle", action: cancel) }
+                if row.cancelRequested {
+                    Text("Cancel requested").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                } else if hovering || reveal {
+                    RowAction(title: "Cancel request", symbol: "xmark.circle", action: cancel)
+                }
                 if let trailing = row.trailing { Text(trailing).font(.callout).monospacedDigit().lineLimit(1).layoutPriority(1) }
             }
             HStack(spacing: 8) {

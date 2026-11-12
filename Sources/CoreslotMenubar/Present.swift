@@ -7,7 +7,9 @@ import SwiftUI
 /// `--present NAME[,NAME…]|all [--appearance light|dark]` opens the popover's content over each in
 /// an ordinary window and prints `present-window <kind> <name> <window number>` per window, then
 /// `present-ready`. `--fixtures-dir DIR` names the fixtures; by default they are found from the
-/// executable up to `Package.swift`.
+/// executable up to `Package.swift`. `--answer yes|no` answers every confirmation unseen and
+/// prints its text to stderr; with `--ask-stop LABEL` the first stoppable hold of that label is
+/// asked to stop once: together they drive a stop through the app's own path.
 @MainActor
 enum Present {
     struct Variant: Sendable {
@@ -17,6 +19,8 @@ enum Present {
         var record: RecordState?
         var change: (@Sendable (inout [String: Any]) -> Void)?
         var result: (@Sendable (Data) -> RunResult)?
+        /// False: the app cannot read any hold's process.
+        var readable = true
 
         /// The 0.7.0 document is the queue fixture with keys removed; its record is the queue's.
         var telemetry: String { fixture == "0.7.0" ? "queue" : fixture }
@@ -70,14 +74,33 @@ enum Present {
             $0["tickets"] = tickets
         }, result: exit3),
         .init(name: "many", change: many),
+        .init(name: "unchecked", readable: false),
     ]
+
+    /// The confirmations and a refusal, over the queue fixture. An alert draws only while it runs
+    /// modally, so one may be named per launch, and it is shown after every other window.
+    static let alerts = ["alert-stop", "alert-cancel", "alert-refused"]
+
+    static let answer: Bool? = switch value("--answer", CommandLine.arguments) {
+    case nil: nil
+    case "yes": true
+    case "no": false
+    case let other?: fail("--answer takes yes or no, not \(other)")
+    }
+
+    static var askStop = value("--ask-stop", CommandLine.arguments)
+
+    static func log(_ line: String) {
+        FileHandle.standardError.write(Data("\(line)\n".utf8))
+    }
 
     static func runIfAsked(_ args: [String]) -> Bool {
         guard let list = value("--present", args) else { return false }
         let fixtures = fixturesDirectory(args)
         let chosen = list == "all" ? variants.map(\.name) + ["icons"] : list.split(separator: ",").map(String.init)
-        for name in chosen where name != "icons" && !variants.contains(where: { $0.name == name }) {
-            fail("no variant \(name); the variants are \(variants.map(\.name).joined(separator: ", ")), icons and all")
+        if chosen.filter(alerts.contains).count > 1 { fail("name one of \(alerts.joined(separator: ", ")) per launch") }
+        for name in chosen where name != "icons" && !alerts.contains(name) && !variants.contains(where: { $0.name == name }) {
+            fail("no variant \(name); the variants are \(variants.map(\.name).joined(separator: ", ")), icons, \(alerts.joined(separator: ", ")) and all")
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
@@ -93,11 +116,13 @@ enum Present {
                     show(IconBoard(), kind: "icons", name: name, at: i)
                     continue
                 }
+                if alerts.contains(name) { continue }
                 let store = Store(feed: feed(variants.first { $0.name == name }!, fixtures: fixtures, live: false))
                 await store.readOnce()
                 show(PopoverView(store: store, openTimeline: {}).environment(\.revealsRowActions, true), kind: "popover", name: name, at: i)
             }
             try? await Task.sleep(for: .milliseconds(500))
+            if let name = chosen.first(where: alerts.contains) { return runAlert(name, fixtures: fixtures) }
             print("present-ready")
             fflush(stdout)
         }
@@ -134,6 +159,33 @@ enum Present {
         fflush(stdout)
     }
 
+    /// Runs the alert modally until it is answered; its number and `present-ready` are printed
+    /// once it is on screen.
+    private static func runAlert(_ name: String, fixtures: URL) {
+        guard let doc = try? StatusDocument.decode(Data(contentsOf: fixtures.appending(path: "status-queue.json"))),
+              let hold = doc.holds.first(where: { $0.stoppable == true }), let ticket = doc.tickets.first
+        else { fail("cannot read status-queue.json in \(fixtures.path)") }
+        let args = ["coreslot", "run", "--restart=yes", "--label", "build\u{202E}gpj.exe", "--", "make", "test\u{2028}all"]
+        let alert = switch name {
+        case "alert-stop":
+            Confirm.make(AlertText.stop(hold, pid: pid_t(hold.pid), facts: ProcessFacts(
+                executable: URL(filePath: "/fixture/coreslot"), startSeconds: 0, arguments: args)))
+        case "alert-cancel": Confirm.make(AlertText.cancel(ticket))
+        default: Confirm.make(AlertText.refusal(.refused(""))!)
+        }
+        // The modal loop runs inside this task, so the main queue waits; a timer of its mode does not.
+        // The window on screen is not `alert.window` but one the system draws for it: this
+        // process's only window on screen.
+        RunLoop.main.add(Timer(timeInterval: 0.5, repeats: false) { _ in
+            let shown = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+            let number = shown.first { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid() }?[kCGWindowNumber as String] as? Int ?? 0
+            print("present-window alert \(name) \(number)")
+            print("present-ready")
+            fflush(stdout)
+        }, forMode: .modalPanel)
+        alert.runModal()
+    }
+
     /// A variant's readings: `status` and `report` answer from the fixture, nothing else runs.
     private static func feed(_ v: Variant, fixtures: URL, live: Bool) -> Feed {
         let original: Data
@@ -167,7 +219,9 @@ enum Present {
             clock = { then }
         }
         let locate: @Sendable () async -> CoreslotBinary? = { found ? binary : nil }
-        return Feed(locate: locate, runner: runner, stateDir: telemetry, clock: clock, record: v.record)
+        return Feed(
+            locate: locate, runner: runner, stateDir: telemetry, clock: clock, record: v.record,
+            inspector: FixtureInspector(readable: v.readable), signal: { _, _ in EPERM })
     }
 
     /// The fixture's newest moment: its last line, or when its status document was read.
@@ -255,6 +309,16 @@ enum Present {
             return t
         }
         edit(&raw, "mem") { $0["reserved_mib"] = 4650; $0["room_mib"] = 0; $0["free_mib"] = 0 }
+    }
+}
+
+/// A fixture's pids are not this machine's: every hold reads as a process of `/fixture/coreslot`,
+/// which no check accepts, so nothing is ever signalled; or, unreadable, as none.
+private struct FixtureInspector: ProcessInspector {
+    let readable: Bool
+
+    func facts(_ pid: pid_t) -> ProcessFacts? {
+        readable ? ProcessFacts(executable: URL(filePath: "/fixture/coreslot"), startSeconds: 0, arguments: ["coreslot"]) : nil
     }
 }
 
