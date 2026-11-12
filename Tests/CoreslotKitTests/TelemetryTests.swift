@@ -38,9 +38,7 @@ extension JSONLTail {
     /// Every line there is now, as text.
     mutating func drain(maxBytes: Int = 1 << 20) throws -> [String] {
         var all: [String] = []
-        while case let lines = try read(maxBytes: maxBytes), !lines.isEmpty {
-            all += lines.map { String(decoding: $0, as: UTF8.self) }
-        }
+        repeat { all += try read(maxBytes: maxBytes).map { String(decoding: $0, as: UTF8.self) } } while !atEnd
         return all
     }
 }
@@ -87,16 +85,78 @@ extension JSONLTail {
         #expect(try t.drain() == ["new"])
     }
 
-    // Mutation: start the first open at 0 whatever the date; the old lines come back, red.
-    @Test func aFirstOpenAfterADateSkipsTheOlderGenerationWhenTheCurrentFileCoversIt() throws {
+    // Mutation: start the first open at 0 whatever the date; "a" comes back, red.
+    @Test func aFirstOpenWithADateReadsTheLastWindowOfBothGenerations() throws {
         let f = try LogFiles()
         defer { f.remove() }
-        try f.append("{\"time_ns\":1000000000}\n", to: f.older)
-        try f.append("{\"time_ns\":5000000000}\n{\"time_ns\":6000000000}\n")
-        var covered = f.tail(startingAfter: Date(timeIntervalSince1970: 5.5))
-        #expect(try covered.drain().count == 2)
-        var notCovered = f.tail(startingAfter: Date(timeIntervalSince1970: 2))
-        #expect(try notCovered.drain().count == 3)
+        try f.append("a\n", to: f.older)
+        let h = try FileHandle(forWritingTo: f.older) // a sparse line of zeros past the window
+        try h.truncate(atOffset: UInt64(2 + JSONLTail.firstOpenWindow + (1 << 20)))
+        try h.close()
+        try f.append("\nb\n", to: f.older)
+        try f.append("c\n")
+        var dated = f.tail(startingAfter: Date(timeIntervalSince1970: 1))
+        #expect(try dated.drain() == ["b", "c"])
+        var whole = f.tail()
+        #expect(try whole.drain() == ["a", "b", "c"])
+    }
+
+    // Mutation: with a date, read the older generation only when the current file exists; red.
+    @Test func aMissingCurrentFileReadsTheOlderGeneration() throws {
+        let f = try LogFiles()
+        defer { f.remove() }
+        try f.append("{\"time_ns\":1}\n{\"time_ns\":2000000000}\n", to: f.older)
+        var t = f.tail(startingAfter: Date(timeIntervalSince1970: 1))
+        #expect(try t.drain().count == 2)
+    }
+
+    // In log/runs.jsonl `time_ns` is the attempt's start, so a later line can carry an earlier time.
+    // Mutation: skip the older generation whenever the current file exists, as the rule this
+    // replaced did here (the current file's first line is older than the date); 1060 s is lost, red.
+    @Test func aRunLogLineNewerThanTheDateInTheOlderGenerationIsRead() throws {
+        let f = try LogFiles()
+        defer { f.remove() }
+        let line = { (s: Int) in "{\"time_ns\":\(s)000000000}\n" }
+        try f.append(line(900) + line(1060), to: f.older)
+        try f.append(line(400) + line(1100))
+        var t = f.tail(startingAfter: Date(timeIntervalSince1970: 1000))
+        #expect(try t.drain().contains(String(line(1060).dropLast())))
+    }
+
+    // Mutation: drop O_NONBLOCK; the open blocks until the time limit, red.
+    // Mutation: drop the regular-file check; reading the directory fails (EISDIR) and throws, red.
+    @Test(.timeLimit(.minutes(1))) func aFIFOOrADirectoryIsNoFile() throws {
+        let f = try LogFiles()
+        defer { f.remove() }
+        try f.append("old\n", to: f.older)
+        #expect(mkfifo(f.current.path, 0o600) == 0)
+        var t = f.tail(startingAfter: Date(timeIntervalSince1970: 1))
+        #expect(try t.drain() == ["old"])
+        #expect(try t.read(maxBytes: 1024) == [] && t.atEnd)
+        var dir = JSONLTail(current: f.root, older: f.older)
+        #expect(try dir.drain() == ["old"])
+    }
+
+    // Mutation: loop until a line or the end (`while true`); the first call reads all 20 GiB, red.
+    @Test func eachCallReadsAtMostMaxBytesOfASparseFileAfterARotation() throws {
+        let f = try LogFiles()
+        defer { f.remove() }
+        try f.append("1\n")
+        var t = f.tail()
+        #expect(try t.drain() == ["1"])
+        try FileManager.default.moveItem(at: f.current, to: f.older)
+        FileManager.default.createFile(atPath: f.current.path, contents: nil)
+        let h = try FileHandle(forWritingTo: f.current)
+        try h.truncate(atOffset: 20 << 30)
+        try h.close()
+        let maxBytes = 1 << 20
+        let clock = ContinuousClock()
+        for k in 1...8 {
+            let started = clock.now
+            #expect(try t.read(maxBytes: maxBytes) == [] && !t.atEnd)
+            #expect(clock.now - started < .seconds(1))
+            #expect(t.offset == Int64(k * maxBytes))
+        }
     }
 
     // Mutation: read the whole remaining file in one call (`want = size - offset`); the
@@ -119,7 +179,7 @@ extension JSONLTail {
         while true {
             let lines = try t.read(maxBytes: maxBytes)
             peak = max(peak, inUse() - base)
-            if lines.isEmpty { break }
+            if t.atEnd { break }
             #expect(lines.reduce(0) { $0 + $1.count } <= maxBytes)
             count += lines.count
             calls += 1

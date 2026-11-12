@@ -7,7 +7,7 @@ import Foundation
 /// It holds no file open between calls: each read opens the files by path and compares the
 /// device and inode it remembers, so a rotated file is finished by name as the older generation.
 public struct JSONLTail: Sendable {
-    /// How much of a file the first open reads at most.
+    /// How much of the two generations, taken as one, a first open with a date reads at most.
     static let firstOpenWindow: Int64 = 64 << 20
 
     struct FileID: Equatable, Sendable {
@@ -20,15 +20,19 @@ public struct JSONLTail: Sendable {
     private let startingAfter: Date?
     private var opened = false
     private var file: FileID?
-    private var offset: Int64 = 0
+    /// Where the current file is read next; 0 while `file` is nil.
+    private(set) var offset: Int64 = 0
     /// The older generation, when it is to be read to its end before the current file.
     private var finishing: (id: FileID, offset: Int64)?
     private var held = Data()
     /// Bytes up to the next newline are dropped: a line cut by a start mid-file, or too long.
     private var skipping = false
+    /// True when the last `read` reached the end of what is there now; false, call again.
+    public private(set) var atEnd = false
 
-    /// With `startingAfter`, the first open reads only what may be newer than that date; the
-    /// caller drops older lines as it parses. Without it, both generations are read whole.
+    /// With `startingAfter`, the first open reads only the last `firstOpenWindow` bytes of the
+    /// older generation and the current file taken as one; the caller drops older lines as it
+    /// parses. Without it, both generations are read whole.
     public init(current: URL, older: URL, startingAfter: Date? = nil) {
         (self.current, self.older, self.startingAfter) = (current, older, startingAfter)
     }
@@ -44,90 +48,82 @@ public struct JSONLTail: Sendable {
             older: stateDir.appending(path: log.rawValue + ".1.jsonl"), startingAfter: startingAfter)
     }
 
-    /// The complete lines appended since the last call, at most `maxBytes` of them in all; an
-    /// empty result means nothing more is there now. A last line without its newline is held.
+    /// Complete lines appended since the last call, at most `maxBytes` of them in all, from at most
+    /// `maxBytes` bytes read. No lines with `atEnd` false means: call again. A last line without
+    /// its newline is held; a line longer than `maxBytes` is skipped.
     public mutating func read(maxBytes: Int) throws -> [Data] {
         precondition(maxBytes > 0)
         if !opened {
             try firstOpen()
             opened = true
         }
-        while true {
+        var budget = maxBytes
+        atEnd = false
+        while budget > 0 {
+            let count = min(budget, maxBytes - held.count)
             if let f = finishing {
-                let chunk = try Self.chunk(older, expecting: f.id, at: f.offset, count: maxBytes - held.count)
-                guard let chunk, !chunk.data.isEmpty else {
+                guard let chunk = try Self.chunk(older, expecting: f.id, at: f.offset, count: count),
+                      chunk.id == f.id, !chunk.data.isEmpty
+                else {
                     // The older generation is done, or gone: a line it left unfinished never ends.
                     finishing = nil
                     (held, skipping) = (Data(), false)
                     continue
                 }
+                budget -= chunk.data.count
                 finishing = (f.id, f.offset + Int64(chunk.data.count))
                 let lines = split(chunk.data, maxBytes: maxBytes)
                 if !lines.isEmpty { return lines }
                 continue
             }
-            guard let chunk = try Self.chunk(current, expecting: nil, at: offset, count: maxBytes - held.count)
-            else {
+            guard let chunk = try Self.chunk(current, expecting: file, at: offset, count: count) else {
                 if let f = file { // rotated, and the new file is not there yet
                     finishing = (f, offset)
                     (file, offset) = (nil, 0)
                     continue
                 }
+                atEnd = true
                 return []
             }
-            if let f = file, f != chunk.id {
+            if let f = file, f != chunk.id { // rotated: nothing was read from the new file
                 finishing = (f, offset)
                 (file, offset) = (nil, 0)
                 continue
             }
-            if file == nil {
-                (file, offset) = (chunk.id, 0)
-                (held, skipping) = (Data(), false)
-                continue
-            }
+            if file == nil { (file, held, skipping) = (chunk.id, Data(), false) }
             if chunk.size < offset { // truncated: start again from 0
                 offset = 0
                 (held, skipping) = (Data(), false)
                 continue
             }
-            if chunk.data.isEmpty { return [] }
+            if chunk.data.isEmpty {
+                atEnd = true
+                return []
+            }
+            budget -= chunk.data.count
             offset += Int64(chunk.data.count)
             let lines = split(chunk.data, maxBytes: maxBytes)
             if !lines.isEmpty { return lines }
         }
+        return []
     }
 
+    /// Places the start: with a date, `firstOpenWindow` bytes before the end of the older
+    /// generation and the current file taken as one, so the older one is read whenever the window
+    /// reaches into it; without, at the start of both. A start inside a line skips to its end.
     private mutating func firstOpen() throws {
-        guard let head = try Self.chunk(current, expecting: nil, at: 0, count: 0) else {
-            if startingAfter == nil, let old = try Self.chunk(older, expecting: nil, at: 0, count: 0) {
-                finishing = (old.id, 0)
-            }
-            return
+        let old = try Self.chunk(older, expecting: nil, at: 0, count: 0)
+        let head = try Self.chunk(current, expecting: nil, at: 0, count: 0)
+        let oldSize = old?.size ?? 0
+        let start = startingAfter == nil ? 0 : max(0, oldSize + (head?.size ?? 0) - Self.firstOpenWindow)
+        if let old, start < oldSize {
+            finishing = (old.id, start)
+            skipping = start > 0
         }
-        let start = startingAfter == nil ? 0 : max(0, head.size - Self.firstOpenWindow)
-        (file, offset, skipping) = (head.id, start, start > 0)
-        guard start == 0, try needsOlder(head.id) else { return }
-        if let old = try Self.chunk(older, expecting: nil, at: 0, count: 0) {
-            let from = startingAfter == nil ? 0 : max(0, old.size - Self.firstOpenWindow)
-            finishing = (old.id, from)
-            skipping = from > 0
+        if let head {
+            (file, offset) = (head.id, max(0, start - oldSize))
+            if finishing == nil { skipping = offset > 0 }
         }
-    }
-
-    /// The older generation may hold lines newer than the date unless the current file's first
-    /// line is not newer than it; an empty or unreadable first line cannot say so.
-    private func needsOlder(_ id: FileID) throws -> Bool {
-        guard let after = startingAfter else { return true }
-        guard let first = try Self.chunk(current, expecting: id, at: 0, count: 64 << 10),
-              let end = first.data.firstIndex(of: 0x0a),
-              let line = try? JSONDecoder().decode(Stamp.self, from: first.data[..<end])
-        else { return true }
-        return Double(line.timeNS) / 1e9 > after.timeIntervalSince1970
-    }
-
-    private struct Stamp: Decodable {
-        let timeNS: Int64
-        enum CodingKeys: String, CodingKey { case timeNS = "time_ns" }
     }
 
     /// Splits held bytes and `data` into complete lines; the rest is held. Returned lines add up
@@ -160,12 +156,14 @@ public struct JSONLTail: Sendable {
         return lines
     }
 
-    /// Up to `count` bytes of the file at `url` from `offset`, with its identity and size; nil
-    /// when it does not exist, or is not the file `expecting` names.
+    /// The identity and size of the regular file at `url`, and up to `count` bytes of it from
+    /// `offset` when it is the file `expecting` names, or `expecting` is nil; nil when there is no
+    /// regular file there. `O_NONBLOCK` keeps a FIFO from blocking the open, and is kept: it has
+    /// no effect on reading a regular file.
     private static func chunk(_ url: URL, expecting: FileID?, at offset: Int64, count: Int)
         throws -> (id: FileID, size: Int64, data: Data)?
     {
-        let fd = open(url.path, O_RDONLY | O_CLOEXEC)
+        let fd = open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         if fd < 0 {
             if errno == ENOENT { return nil }
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -173,9 +171,10 @@ public struct JSONLTail: Sendable {
         defer { close(fd) }
         var st = stat()
         guard fstat(fd, &st) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        guard st.st_mode & S_IFMT == S_IFREG else { return nil }
         let id = FileID(device: Int64(st.st_dev), inode: UInt64(st.st_ino))
-        if let expecting, expecting != id { return nil }
         let size = Int64(st.st_size)
+        if let expecting, expecting != id { return (id, size, Data()) }
         let want = max(0, min(Int64(count), size - offset))
         var data = Data(count: Int(want))
         var got = 0
