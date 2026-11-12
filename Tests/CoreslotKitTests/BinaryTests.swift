@@ -85,9 +85,12 @@ func temporaryDirectory() throws -> URL {
 @Suite struct RunnerTests {
     // Mutation: send no SIGTERM; sleep then lives until the SIGKILL at 1.5 s, red.
     // Mutation: send no SIGKILL; the case that ignores SIGTERM runs its 30 s, red.
+    // Mutation: wait for the pipes' EOF however long (drop the give-up); the leftover sleep, which
+    // prints its pid and holds them, keeps the third case 12 s, red.
     @Test(arguments: [
         (["/bin/sleep", "30"], 1250),
         (["/bin/sh", "-c", "trap '' TERM; exec /bin/sleep 30"], 2500),
+        (["/bin/sh", "-c", "/bin/sleep 12 & echo $!; exec /bin/sleep 30"], 2500),
     ])
     func aTimeoutEndsAndReapsTheChild(_ command: [String], withinMS: Int) async throws {
         let pid = Mutex<pid_t>(0)
@@ -97,6 +100,9 @@ func temporaryDirectory() throws -> URL {
             pid.withLock { $0 = p }
         }
         let took = clock.now - started
+        if let leftover = pid_t(String(decoding: r.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) {
+            kill(leftover, SIGKILL)
+        }
         #expect(r.timedOut)
         #expect(took < .milliseconds(withinMS), "took \(took)")
         let child = pid.withLock { $0 }
@@ -135,5 +141,21 @@ func temporaryDirectory() throws -> URL {
     @Test func aMissingExecutableHasNoExitCode() async {
         let r = await Runner.process.run(URL(filePath: "/nonexistent/coreslot"), [], environment: nil, timeout: .seconds(5))
         #expect(r.exitCode == nil && !r.timedOut)
+    }
+
+    // Mutation: map every failure to start to nil; the argument list too long reads as not found, red.
+    @Test func onlyANonExecutableIsNotFoundAndAnotherFailureFails() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (plain, garbage) = (root.appending(path: "plain"), root.appending(path: "garbage"))
+        try Data("#!/bin/sh\n".utf8).write(to: plain) // 0644: EACCES
+        try Data("not a program".utf8).write(to: garbage)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: garbage.path) // ENOEXEC
+        for url in [plain, garbage] {
+            #expect(await Runner.process.run(url, [], environment: nil, timeout: .seconds(5)).exitCode == nil, "\(url.lastPathComponent)")
+        }
+        let long = await Runner.process.run(URL(filePath: "/bin/echo"), [String(repeating: "x", count: 2 << 20)], environment: nil, timeout: .seconds(5))
+        #expect(long.exitCode == -E2BIG)
+        #expect(interpret(long, binary: CoreslotBinary(url: plain, version: .minimum)) == .problem(.failed(exitCode: -E2BIG)))
     }
 }

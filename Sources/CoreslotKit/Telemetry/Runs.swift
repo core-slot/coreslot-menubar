@@ -35,7 +35,7 @@ public struct Runs: Sendable {
     }
 
     public private(set) var attempts: [Key: Attempt] = [:]
-    private var byTicket: [String: Key] = [:]
+    private(set) var byTicket: [String: Key] = [:]
 
     public init() {}
 
@@ -65,6 +65,12 @@ public struct Runs: Sendable {
         case .stopped, .outside, .other: break
         }
         attempts[key] = a
+    }
+
+    /// Drops the attempts that ended before `date`, and their tickets; live and waiting ones stay.
+    public mutating func prune(endedBefore date: Date) {
+        attempts = attempts.filter { $0.value.end.map { Double($0.timeNS) / 1e9 >= date.timeIntervalSince1970 } ?? true }
+        byTicket = byTicket.filter { attempts[$0.value] != nil }
     }
 
     /// The attempt whose `enqueue` line names this ticket file.

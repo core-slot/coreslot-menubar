@@ -22,6 +22,8 @@ public struct MemoryBar: Sendable, Equatable {
     /// `-room_mib` when the holds reserve more than the machine offers; the set-aside segment is
     /// then cut to what free memory has.
     public let shortfallMiB: Int64?
+    /// `headroom_mib − reserve_mib − room_mib` unclipped, for the legend: "set aside X, Y short".
+    public let setAsideMiB: Int64
 
     public init?(_ doc: StatusDocument) {
         guard let m = doc.mem, let machine = m.machineMiB, let headroom = m.headroomMiB,
@@ -37,7 +39,8 @@ public struct MemoryBar: Sendable, Equatable {
         }
         segments.append(Segment(kind: .outside, mib: left))
         let reserveShown = min(max(0, reserve), free)
-        let setAside = min(max(0, headroom - reserve - room), free - reserveShown)
+        setAsideMiB = headroom - reserve - room
+        let setAside = min(max(0, setAsideMiB), free - reserveShown)
         segments += [
             Segment(kind: .setAside, mib: setAside),
             Segment(kind: .room, mib: free - reserveShown - setAside),

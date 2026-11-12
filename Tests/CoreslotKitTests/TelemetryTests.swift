@@ -267,6 +267,18 @@ extension JSONLTail {
         #expect(a?.admittedNS == nil)
     }
 
+    // Mutation: keep the ticket index whole (drop its filter); "t1" still names a key, red.
+    // Mutation: drop an attempt with no end too (`?? false`); the waiting attempt goes, red.
+    @Test func pruneDropsOnlyWhatEndedBeforeTheDate() {
+        var runs = Runs()
+        for (run, ticket) in [("old", "t1"), ("late", "t2"), ("live", "t3")] { runs.apply(line(run, 1, 1, enqueue(ticket))) }
+        runs.apply(line("old", 1, 5, .cancelled))
+        runs.apply(line("late", 1, 20, .refused))
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 10))
+        #expect(runs.byTicket["t1"] == nil && runs.attempts.count == 2)
+        #expect(runs.waiting(ticketName: "t2")?.end?.event == "refused" && runs.waiting(ticketName: "t3")?.end == nil)
+    }
+
     // Mutation: record the ticket from the waiting line instead of `enqueue`; nothing is found, red.
     @Test(arguments: Fixture.statusNames.filter { $0 != "status-0.7.0.json" })
     func everyFixtureTicketHasItsWaitingLine(_ status: String) throws {

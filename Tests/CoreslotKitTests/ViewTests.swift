@@ -89,6 +89,15 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(bar.segments.map(\.mib).prefix(2) == [10000, m.machineMiB! - m.headroomMiB! - 10000])
     }
 
+    // Mutation: give the drawn set-aside width instead (`setAsideMiB = setAside`); 0, red.
+    @Test func theSetAsideFigureIsUnclipped() throws {
+        let doc = try document("status-queue.json") {
+            mem(&$0, "headroom_mib", 500); mem(&$0, "reserve_mib", 1024); mem(&$0, "room_mib", -2524)
+        }
+        let bar = try #require(MemoryBar(doc))
+        #expect(bar.setAsideMiB == 2000 && bar.shortfallMiB == 2524)
+    }
+
     @Test func noBarWithoutMem() throws {
         #expect(MemoryBar(try document("status-0.7.0.json")) == nil)
         #expect(MemoryBar(try document("status-queue.json") { $0["mem"] = NSNull() }) == nil)
@@ -204,19 +213,24 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
 
 @Suite struct SafeTextTests {
     // Mutation: let U+2028 through (drop `.lineSeparator`); red.
+    // Mutation: drop the default-ignorable check; U+034F, U+3164 and U+E0100 pass, red.
+    // Mutation: drop `.unassigned`; the noncharacter U+FDD0 passes, red.
     @Test func everyHiddenCharacterIsShownAndDistinctStringsStayDistinct() {
         let inputs = [
             "demo:a\u{202E}b", "demo:a\u{200B}b", "demo:a\u{E0041}b", "demo:a\u{2028}b", "demo:a\nb",
-            "demo:a\\u{202E}b", "demo:ab",
+            "demo:a\\u{202E}b", "demo:ab", "demo:a\u{034F}b", "demo:a\u{3164}b", "demo:a\u{E0100}b",
+            "demo:a\(Character(Unicode.Scalar(0xFDD0)!))b", // a noncharacter, unassigned for good; no literal takes it
         ]
         let shown = inputs.map(SafeText.display)
         #expect(Set(shown).count == inputs.count)
         #expect(shown[0] == "demo:a\\u{202E}b" && shown[2] == "demo:a\\u{E0041}b" && shown[4] == "demo:a\\u{000A}b")
         #expect(shown[3] == "demo:a\\u{2028}b")
         #expect(shown[5] == "demo:a\\\\u{202E}b")
-        let hidden: Set<Unicode.GeneralCategory> = [.control, .format, .lineSeparator, .paragraphSeparator]
+        #expect(shown[7...] == ["demo:a\\u{034F}b", "demo:a\\u{3164}b", "demo:a\\u{E0100}b", "demo:a\\u{FDD0}b"])
+        let hidden: Set<Unicode.GeneralCategory> = [.control, .format, .lineSeparator, .paragraphSeparator, .unassigned]
         for s in shown {
-            #expect(s.unicodeScalars.allSatisfy { !hidden.contains($0.properties.generalCategory) }, "\(Array(s.unicodeScalars))")
+            #expect(s.unicodeScalars.allSatisfy { !hidden.contains($0.properties.generalCategory) && !$0.properties.isDefaultIgnorableCodePoint },
+                    "\(Array(s.unicodeScalars))")
         }
     }
 }
