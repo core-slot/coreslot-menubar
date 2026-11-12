@@ -121,3 +121,43 @@ import Testing
         #expect(throws: OtherSchema.self) { try JSONDecoder().decode(Report.self, from: other) }
     }
 }
+
+@Suite struct HoldTracksTests {
+    private func sample(_ s: Int64, ok: Bool = true, _ jobs: [(String, Int64)]) -> SampleLine {
+        SampleLine(
+            timeNS: s * 1_000_000_000, level: ok ? "green" : "unknown", headroomOK: ok, headroomMiB: ok ? 4000 : 0,
+            reserveMiB: 256, roomMiB: 0, liveHolds: Int64(jobs.count),
+            jobs: jobs.map { SampleLine.Job(hold: $0.0, label: "demo:same", footprintMiB: $0.1) })
+    }
+
+    // Mutation: key the tracks by label, as `Series` does; the two holds of one label merge, red.
+    @Test func twoHoldsOfOneLabelAreTwoTracks() {
+        var t = HoldTracks()
+        t.add(sample(1000, [("h1", 100), ("h2", 700)]))
+        t.add(sample(1012, [("h1", 150), ("h2", 650)]))
+        #expect(t.points("h1").map(\.footprintMiB) == [100, 150])
+        #expect(t.peak("h1") == 150 && t.peak("h2") == 700)
+    }
+
+    // Mutation: drop the `headroomOK` guard; the failed sample's 0 becomes a point, red.
+    @Test func aFailedSampleIsAGapNotZero() {
+        var t = HoldTracks()
+        t.add(sample(1000, [("h1", 300)]))
+        t.add(sample(1020, ok: false, [("h1", 0)]))
+        #expect(t.points("h1").map(\.footprintMiB) == [300])
+    }
+
+    // Mutation: append instead of inserting in time order; the older line lands last, red.
+    @Test func aBucketKeepsItsLargestAndLinesArriveOutOfOrder() {
+        var t = HoldTracks(resolutionS: 10, spanS: 60)
+        t.add(hold: "h", timeNS: 1_020_000_000_000, footprintMiB: 50)
+        t.add(hold: "h", timeNS: 1_000_000_000_000, footprintMiB: 40)
+        t.add(hold: "h", timeNS: 1_021_000_000_000, footprintMiB: 80)
+        t.add(hold: "h", timeNS: 1_022_000_000_000, footprintMiB: 60)
+        #expect(t.points("h").map(\.footprintMiB) == [40, 80])
+        t.add(hold: "h", timeNS: 1_090_000_000_000, footprintMiB: 10)
+        #expect(t.points("h").map(\.footprintMiB) == [10], "a point older than the span is gone")
+        t.keep(only: ["other"])
+        #expect(t.points("h") == [] && t.peak("h") == nil)
+    }
+}
