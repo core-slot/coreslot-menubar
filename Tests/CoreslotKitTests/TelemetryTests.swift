@@ -227,6 +227,28 @@ extension JSONLTail {
         #expect(!e.isEmpty)
         #expect(e.filter { EventLine(line: Data($0.utf8)) == nil && MemoryLine(line: Data($0.utf8)) == nil } == [])
     }
+
+    // Mutation: make `stops` non-optional (`c.decode`); every line but a stop's is skipped, red.
+    @Test(arguments: Fixture.telemetryNames)
+    func everyFixtureRunLogLineDecodes(_ name: String) throws {
+        var runs = JSONLTail(stateDir: Fixture.directory.appending(path: name), log: .runs)
+        let lines = try runs.drain()
+        #expect(!lines.isEmpty)
+        #expect(lines.filter { RunLogLine(line: Data($0.utf8)) == nil } == [])
+    }
+}
+
+@Suite struct RecordStateTests {
+    // Mutation: `sampleAge < 30`; the sample 30 s ago is not on, red.
+    // Mutation: a hold live `> 60` s; 60 s with no sample is unknown, red.
+    @Test func theBoundaries() {
+        let now = Date(timeIntervalSince1970: 1000)
+        let ago = { (s: Double) in now.addingTimeInterval(-s) }
+        #expect(RecordState(now: now, lastSample: ago(30), holdLiveSince: nil) == .on)
+        #expect(RecordState(now: now, lastSample: ago(31), holdLiveSince: nil) == .unknown)
+        #expect(RecordState(now: now, lastSample: nil, holdLiveSince: ago(59)) == .unknown)
+        #expect(RecordState(now: now, lastSample: nil, holdLiveSince: ago(60)) == .looksOff)
+    }
 }
 
 @Suite struct RunsTests {

@@ -108,6 +108,7 @@ func temporaryDirectory() throws -> URL {
         let child = pid.withLock { $0 }
         #expect(child > 0)
         // No process left at that pid, not even a zombie: kill(2) finds a zombie.
+        // Mutation: replace the waitpid loop with `return 0`; the zombie stays, red.
         errno = 0
         #expect(kill(child, 0) == -1 && errno == ESRCH)
     }
