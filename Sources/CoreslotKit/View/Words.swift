@@ -58,6 +58,22 @@ public enum Words {
         return ageS > 5 ? "\(text) · \(Formatting.duration(Double(ageS))) ago" : text
     }
 
+    /// The one state shown when there is no document, and what to do about it.
+    public static func problem(_ problem: Problem) -> (state: String, fix: String) {
+        switch problem {
+        case .notFound:
+            ("coreslot was not found", "Install coreslot \(Version.minimum) or later in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")
+        case .stateUnreadable:
+            ("coreslot cannot read its state", "Run coreslot doctor in a terminal to see why.")
+        case .failed(let code):
+            ("coreslot status failed with exit status \(code)", "Run coreslot doctor in a terminal to see why.")
+        case .malformed:
+            ("coreslot printed a status this app cannot read", "Run coreslot doctor, or update this app.")
+        case .timedOut:
+            ("coreslot status did not answer in time", "The next reading tries again; coreslot doctor can say what is slow.")
+        }
+    }
+
     /// The line under a hold that shows no stop button. `processChecked` is false when the app
     /// could not read the hold's process, which `status` does not report.
     public static func quietLine(container: Bool, processChecked: Bool) -> String {
