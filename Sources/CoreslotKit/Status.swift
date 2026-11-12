@@ -93,6 +93,15 @@ public struct StatusDocument: Decodable, Sendable, Equatable {
             case headroomMiB = "headroom_mib"
             case roomMiB = "room_mib"
         }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            (reservedMiB, freeMiB) = (try c.decode(.reservedMiB, in: Clamp.amount), try c.decode(.freeMiB, in: Clamp.amount))
+            machineMiB = try c.decodeIfPresent(.machineMiB, in: Clamp.amount)
+            reserveMiB = try c.decodeIfPresent(.reserveMiB, in: Clamp.amount)
+            headroomMiB = try c.decodeIfPresent(.headroomMiB, in: Clamp.signed)
+            roomMiB = try c.decodeIfPresent(.roomMiB, in: Clamp.signed)
+        }
     }
 
     public struct Watch: Decodable, Sendable, Equatable {

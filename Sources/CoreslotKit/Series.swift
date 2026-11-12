@@ -84,7 +84,9 @@ public struct Series: Sendable {
         add(Reading(timeNS: t, ok: true, headroomMiB: h, reserveMiB: r, roomMiB: room, footprintMiB: footprints))
     }
 
+    /// A reading not later than the last one is ignored: coreslot writes samples in time order.
     mutating func add(_ r: Reading) {
+        if let last, r.timeNS <= last { return }
         if let last, r.timeNS - last > maxSilenceNS { silences.append(last...r.timeNS) }
         if first == nil { first = r.timeNS }
         let crossed = last.map { index($0) != index(r.timeNS) } ?? false

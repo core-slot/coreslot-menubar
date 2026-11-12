@@ -49,13 +49,13 @@ public struct SampleLine: Decodable, Sendable, Equatable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try Version1.check(c, .v)
-        timeNS = try c.decode(Int64.self, forKey: .timeNS)
+        timeNS = try c.decode(.timeNS, in: Clamp.time)
         level = try c.decode(String.self, forKey: .level)
         headroomOK = try c.decode(Bool.self, forKey: .headroomOK)
-        headroomMiB = try c.decode(Int64.self, forKey: .headroomMiB)
-        reserveMiB = try c.decode(Int64.self, forKey: .reserveMiB)
-        roomMiB = try c.decode(Int64.self, forKey: .roomMiB)
-        liveHolds = try c.decode(Int64.self, forKey: .liveHolds)
+        headroomMiB = try c.decode(.headroomMiB, in: Clamp.signed)
+        reserveMiB = try c.decode(.reserveMiB, in: Clamp.amount)
+        roomMiB = try c.decode(.roomMiB, in: Clamp.signed)
+        liveHolds = try c.decode(.liveHolds, in: Clamp.amount)
         jobs = try c.decodeIfPresent([Job].self, forKey: .jobs) ?? []
     }
 
@@ -148,9 +148,9 @@ public struct EventLine: Decodable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try Version1.check(c, .v)
         run = try c.decode(String.self, forKey: .run)
-        attempt = try c.decode(Int64.self, forKey: .attempt)
-        n = try c.decode(Int64.self, forKey: .n)
-        timeNS = try c.decode(Int64.self, forKey: .timeNS)
+        attempt = try c.decode(.attempt, in: Clamp.amount)
+        n = try c.decode(.n, in: Clamp.amount)
+        timeNS = try c.decode(.timeNS, in: Clamp.time)
         label = try c.decode(String.self, forKey: .label)
         switch try c.decode(String.self, forKey: .e) {
         case "enqueue": kind = .enqueue(try Enqueue(from: decoder))
@@ -202,7 +202,7 @@ public struct MemoryLine: Decodable, Sendable, Equatable {
         guard try c.decode(String.self, forKey: .e) == "memory" else {
             throw DecodingError.dataCorruptedError(forKey: .e, in: c, debugDescription: "not a memory line")
         }
-        timeNS = try c.decode(Int64.self, forKey: .timeNS)
+        timeNS = try c.decode(.timeNS, in: Clamp.time)
         top = try c.decodeIfPresent([Process].self, forKey: .top) ?? []
         vm = try c.decodeIfPresent(Process.self, forKey: .vm)
     }
@@ -210,6 +210,60 @@ public struct MemoryLine: Decodable, Sendable, Equatable {
     public init?(line: Data) {
         guard let m = try? JSONDecoder().decode(Self.self, from: line) else { return nil }
         self = m
+    }
+}
+
+extension SampleLine.Job {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        (hold, label) = (try c.decode(String.self, forKey: .hold), try c.decode(String.self, forKey: .label))
+        footprintMiB = try c.decode(.footprintMiB, in: Clamp.amount)
+    }
+}
+
+extension EventLine.Enqueue {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        (ticket, realMemory) = (try c.decode(String.self, forKey: .ticket), try c.decode(Bool.self, forKey: .realMemory))
+        typicalS = try c.decode(.typicalS, in: Clamp.amount)
+        (needMiB, memMiB) = (try c.decode(.needMiB, in: Clamp.amount), try c.decode(.memMiB, in: Clamp.amount))
+    }
+}
+
+extension EventLine.Waiting {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            reason: try c.decode(String.self, forKey: .reason), noPass: try c.decodeIfPresent(String.self, forKey: .noPass),
+            ahead: try c.decodeIfPresent(String.self, forKey: .ahead), roomMiB: try c.decodeIfPresent(.roomMiB, in: Clamp.signed))
+    }
+}
+
+extension MemoryLine.Process {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        (name, footprintMiB) = (try c.decode(String.self, forKey: .name), try c.decode(.footprintMiB, in: Clamp.amount))
+    }
+}
+
+/// The ranges every integer read from the state directory, and every `mem` integer of `status`,
+/// is clamped into as it is decoded: no sum or difference the kit takes of them can overflow.
+enum Clamp {
+    /// Sizes in MiB or KiB, counts and whole seconds.
+    static let amount: ClosedRange<Int64> = 0...(1 << 40)
+    /// A room or a headroom, which can be below 0, and an exit status.
+    static let signed: ClosedRange<Int64> = -(1 << 40)...(1 << 40)
+    /// Nanoseconds since the epoch, to the year 2116.
+    static let time: ClosedRange<Int64> = 0...(1 << 62)
+}
+
+extension KeyedDecodingContainer {
+    func decode(_ key: Key, in range: ClosedRange<Int64>) throws -> Int64 {
+        min(max(try decode(Int64.self, forKey: key), range.lowerBound), range.upperBound)
+    }
+
+    func decodeIfPresent(_ key: Key, in range: ClosedRange<Int64>) throws -> Int64? {
+        try decodeIfPresent(Int64.self, forKey: key).map { min(max($0, range.lowerBound), range.upperBound) }
     }
 }
 

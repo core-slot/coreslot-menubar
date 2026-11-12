@@ -72,6 +72,37 @@ import Testing
         #expect(bucket(b, 60)?.point != nil && bucket(b, 1260)?.point != nil)
         #expect(bucket(b, -10)?.point == nil, "nothing was recorded before the first sample")
     }
+
+    // Mutation: drop the check of a time not later than the last; the 2 s sample, with the most
+    // memory in use, becomes the point of bucket 0, red.
+    @Test func aSampleNotLaterThanTheLastIsIgnored() throws {
+        var series = Series(range: .hour)
+        for (s, headroom) in [(0, 5000), (4, 5000), (2, 1000), (4, 1000)] as [(Int64, Int64)] {
+            series.add(sample(s, headroom: headroom))
+        }
+        let got = try #require(bucket(series.buckets(machineMiB: Self.machine, now: at(10)), 0)?.point)
+        #expect(got.inUseMiB == Self.machine - 5000)
+    }
+
+    // Each mutation crashes the run with an overflow trap, red:
+    // Mutation: decode `footprint_mib` unclamped (`Int64.max` + 1 for the shared label).
+    // Mutation: decode `time_ns` unclamped (`Int64.max` − `Int64.min`).
+    // Mutation: decode `room_mib` unclamped (`machine − reserve − Int64.min` in the buckets).
+    @Test func integersFromTheStateDirectoryCannotTrap() throws {
+        let (max, min) = ("9223372036854775807", "-9223372036854775808")
+        let line = { (t: String, room: String, jobs: String) in
+            SampleLine(line: Data(#"{"v":1,"time_ns":\#(t),"level":"green","headroom_ok":true,"headroom_mib":2000,"reserve_mib":256,"room_mib":\#(room),"live_holds":2,"jobs":[\#(jobs)]}"#.utf8))
+        }
+        let early = try #require(line(min, "0", ""))
+        let late = try #require(line(max, min, #"{"hold":"a","label":"x","footprint_mib":\#(max)},{"hold":"b","label":"x","footprint_mib":1}"#))
+        #expect(early.timeNS == 0 && late.timeNS == 1 << 62 && late.roomMiB == -(1 << 40))
+        #expect(late.jobs.map(\.footprintMiB) == [1 << 40, 1])
+        var series = Series(range: .hour)
+        series.add(early)
+        series.add(late)
+        let point = try #require(series.buckets(machineMiB: Self.machine, now: Date(timeIntervalSince1970: 0x1p62 / 1e9)).last?.point)
+        #expect(point.footprintMiB == ["x": (1 << 40) + 1] && point.reservedMiB == Self.machine - 256 + (1 << 40))
+    }
 }
 
 @Suite struct ReportTests {

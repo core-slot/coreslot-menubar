@@ -28,15 +28,15 @@ public struct RunLogLine: Decodable, Sendable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        timeNS = try c.decode(Int64.self, forKey: .timeNS)
+        timeNS = try c.decode(.timeNS, in: Clamp.time)
         label = try c.decode(String.self, forKey: .label)
         waitedS = try c.decode(Double.self, forKey: .waitedS)
         ranS = try c.decode(Double.self, forKey: .ranS)
-        memPeakKiB = try c.decodeIfPresent(Int64.self, forKey: .memPeakKiB)
-        exit = try c.decode(Int64.self, forKey: .exit)
+        memPeakKiB = try c.decodeIfPresent(.memPeakKiB, in: Clamp.amount)
+        exit = try c.decode(.exit, in: Clamp.signed)
         failOpen = try c.decode(String.self, forKey: .failOpen)
         container = try c.decodeIfPresent(Bool.self, forKey: .container) ?? false
-        stops = try c.decodeIfPresent(Int64.self, forKey: .stops) ?? 0
+        stops = try c.decodeIfPresent(.stops, in: Clamp.amount) ?? 0
     }
 
     public init?(line: Data) {

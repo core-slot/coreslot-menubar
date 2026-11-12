@@ -94,6 +94,12 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(MemoryBar(try document("status-queue.json") { $0["mem"] = NSNull() }) == nil)
     }
 
+    // Mutation: decode `mem.room_mib` unclamped; `headroom − reserve − Int64.min` traps, red (crash).
+    @Test func aRoomOfInt64MinCannotTrap() throws {
+        let bar = try #require(MemoryBar(try document("status-queue.json") { mem(&$0, "room_mib", Int64.min) }))
+        #expect(bar.shortfallMiB == 1 << 40)
+    }
+
     // Mutation: clip the shortfall to 0 (`room < 0 ? 0 : nil`); red.
     @Test func aNegativeRoomKeepsTheWidthAndSaysTheShortfall() throws {
         let doc = try document("status-queue.json") { mem(&$0, "room_mib", -3000) }
