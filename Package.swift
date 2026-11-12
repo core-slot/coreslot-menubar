@@ -10,7 +10,8 @@ let package = Package(
     targets: [
         .target(name: "CoreslotKit"),
         .executableTarget(name: "CoreslotMenubar", dependencies: ["CoreslotKit"]),
-        .testTarget(name: "CoreslotKitTests", dependencies: ["CoreslotKit"]),
+        .testTarget(
+            name: "CoreslotKitTests", dependencies: ["CoreslotKit"], resources: [.copy("Fixtures")]),
     ],
     swiftLanguageModes: [.v6]
 )

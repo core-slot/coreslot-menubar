@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "state_dir": "/tmp/coreslot-fixture-state",
+  "state_dir_exists": true,
+  "format": 2,
+  "format_present": true,
+  "format_understood": true,
+  "format_error": "",
+  "gen": 16,
+  "reconciled_ns": 1794505806995881000,
+  "config_error": "",
+  "degraded": null,
+  "section": {
+    "held": false,
+    "holder": null
+  },
+  "mem": {
+    "reserved_mib": 0,
+    "free_mib": 1741,
+    "machine_mib": 16384,
+    "reserve_mib": 256,
+    "headroom_mib": 1997,
+    "room_mib": 1741
+  },
+  "watch": {
+    "level": "green",
+    "excess_points": 0,
+    "protecting": false,
+    "reason": "no coreslot job is running",
+    "next_victim": "",
+    "learning": 1
+  },
+  "holds": [],
+  "tickets": [],
+  "dead_holds": [],
+  "cancel_requests": [],
+  "ignored": {
+    "cancel": 0,
+    "holds": 0,
+    "queue": 0
+  },
+  "observed_s": 0
+}
