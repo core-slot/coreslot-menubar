@@ -1,0 +1,139 @@
+import Darwin
+import Foundation
+import Synchronization
+import Testing
+@testable import CoreslotKit
+
+@Suite struct VersionTests {
+    // Mutation: do not trim the line, so its newline stays; red.
+    @Test func aReleaseLineParses() throws {
+        let (v, formats) = try #require(Version.parse(versionLine: "coreslot 0.8.0 (protocol formats: 2)\n"))
+        #expect(v == Version(0, 8, 0) && !v.isDevelopment && formats == [2])
+    }
+
+    // Mutation: keep only the first format of the list; red.
+    @Test func aListOfFormatsParses() throws {
+        let (v, formats) = try #require(Version.parse(versionLine: "coreslot 0.9.1 (protocol formats: 2, 3)"))
+        #expect(v == Version(0, 9, 1) && formats == [2, 3])
+    }
+
+    // Mutation: drop the 0.0.0 rule in Version.init; red.
+    @Test func aBuildFromACheckoutIsDevelopment() throws {
+        let (v, _) = try #require(Version.parse(versionLine: "coreslot 0.0.0-dev (protocol formats: 2)"))
+        #expect(v == .development && v.isDevelopment)
+    }
+
+    // Mutation: accept a list entry that is not a number (compactMap without the count check); red.
+    @Test(arguments: ["", "coreslot", "coreslot 0.8 (protocol formats: 2)", "coreslot 0.8.0 (protocol formats: )",
+                      "coreslot 0.8.0 (protocol formats: 2, x)", "other 0.8.0 (protocol formats: 2)"])
+    func anythingElseDoesNot(_ line: String) {
+        #expect(Version.parse(versionLine: line) == nil)
+    }
+
+    // Mutation: order by `description`, as text; 0.10.0 sorts before 0.9.9, red.
+    @Test func versionsOrderByNumber() {
+        #expect(Version(0, 7, 0) < .minimum && !(Version(0, 8, 0) < .minimum) && Version(0, 10, 0) > Version(0, 9, 9))
+    }
+}
+
+@Suite struct LocateTests {
+    // Mutation: refuse a symlink in isExecutableFile (lstat instead of stat); red.
+    @Test func aSymlinkToAnExecutableIsFoundPastANonExecutableFile() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appending(path: "first"), second = root.appending(path: "second")
+        let real = root.appending(path: "real")
+        for d in [first, second, real] { try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
+        try write(first.appending(path: "coreslot"), mode: 0o644)
+        try write(real.appending(path: "coreslot-0.8.0"), mode: 0o755)
+        try FileManager.default.createSymbolicLink(
+            at: second.appending(path: "coreslot"), withDestinationURL: real.appending(path: "coreslot-0.8.0"))
+
+        let found = Locate.find(override: nil, directories: [first], path: "relative/bin::\(second.path)")
+        #expect(found?.path == second.appending(path: "coreslot").path)
+    }
+
+    // Mutation: drop the regular-file check; a directory named coreslot is returned, red.
+    @Test func theOverrideComesFirstAndADirectoryIsNoBinary() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appending(path: "bin"), other = root.appending(path: "other")
+        try FileManager.default.createDirectory(at: dir.appending(path: "coreslot"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        try write(other.appending(path: "coreslot"), mode: 0o755)
+        let pick = root.appending(path: "mine")
+        try write(pick, mode: 0o755)
+
+        #expect(Locate.find(override: pick, directories: [dir, other], path: nil)?.path == pick.path)
+        #expect(Locate.find(override: nil, directories: [dir, other], path: nil)?.path
+            == other.appending(path: "coreslot").path)
+        #expect(Locate.find(override: nil, directories: [dir], path: nil) == nil)
+    }
+
+    private func write(_ url: URL, mode: Int) throws {
+        try Data("#!/bin/sh\n".utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+    }
+}
+
+func temporaryDirectory() throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appending(path: "coreslot-menubar-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
+
+@Suite struct RunnerTests {
+    // Mutation: send no SIGTERM; sleep then lives until the SIGKILL at 1.5 s, red.
+    // Mutation: send no SIGKILL; the case that ignores SIGTERM runs its 30 s, red.
+    @Test(arguments: [
+        (["/bin/sleep", "30"], 1250),
+        (["/bin/sh", "-c", "trap '' TERM; exec /bin/sleep 30"], 2500),
+    ])
+    func aTimeoutEndsAndReapsTheChild(_ command: [String], withinMS: Int) async throws {
+        let pid = Mutex<pid_t>(0)
+        let clock = ContinuousClock()
+        let started = clock.now
+        let r = await Runner.spawn(URL(filePath: command[0]), Array(command.dropFirst()), nil, .milliseconds(500)) { p in
+            pid.withLock { $0 = p }
+        }
+        let took = clock.now - started
+        #expect(r.timedOut)
+        #expect(took < .milliseconds(withinMS), "took \(took)")
+        let child = pid.withLock { $0 }
+        #expect(child > 0)
+        // No process left at that pid, not even a zombie: kill(2) finds a zombie.
+        errno = 0
+        #expect(kill(child, 0) == -1 && errno == ESRCH)
+    }
+
+    // Mutation: read stderr only after stdout's EOF; the writer blocks on a full pipe and it times out, red.
+    // Mutation: drop the 16 MiB bound; red.
+    @Test func bothOutputsAreReadAtOnceAndBounded() async {
+        let script = "/usr/bin/head -c 20000000 /dev/zero >&2 & /usr/bin/head -c 20000000 /dev/zero; wait; exit 3"
+        let r = await Runner.process.run(URL(filePath: "/bin/sh"), ["-c", script], environment: nil, timeout: .seconds(20))
+        #expect(!r.timedOut)
+        #expect(r.exitCode == 3)
+        #expect(r.stdout.count == 16 << 20 && r.stderr.count == 16 << 20)
+    }
+
+    // Mutation: ignore `environment` (pass the app's own alone); red.
+    @Test func theEnvironmentIsLaidOverTheAppsOwn() async {
+        let r = await Runner.process.run(
+            URL(filePath: "/bin/sh"), ["-c", "printf '%s|%s' \"$CORESLOT_STATE_DIR\" \"${PATH:+set}\""],
+            environment: ["CORESLOT_STATE_DIR": "/tmp/x"], timeout: .seconds(5))
+        #expect(String(decoding: r.stdout, as: UTF8.self) == "/tmp/x|set")
+        #expect(r.exitCode == 0)
+    }
+
+    // Mutation: return the raw wait status instead of 128 + the signal; red.
+    @Test func aSignalIs128PlusItsNumber() async {
+        let r = await Runner.process.run(URL(filePath: "/bin/sh"), ["-c", "kill -TERM $$"], environment: nil, timeout: .seconds(5))
+        #expect(r.exitCode == 128 + SIGTERM && !r.timedOut)
+    }
+
+    // Mutation: report a failed posix_spawn as exit 127; red.
+    @Test func aMissingExecutableHasNoExitCode() async {
+        let r = await Runner.process.run(URL(filePath: "/nonexistent/coreslot"), [], environment: nil, timeout: .seconds(5))
+        #expect(r.exitCode == nil && !r.timedOut)
+    }
+}
