@@ -1,0 +1,1 @@
+// The `status --json` document.
