@@ -7,7 +7,7 @@
   "format_understood": true,
   "format_error": "",
   "gen": 20,
-  "reconciled_ns": 1794505806995881000,
+  "reconciled_ns": 1794508093767275000,
   "config_error": "",
   "degraded": null,
   "section": {
@@ -15,12 +15,12 @@
     "holder": null
   },
   "mem": {
-    "reserved_mib": 1485,
-    "free_mib": 238,
+    "reserved_mib": 1696,
+    "free_mib": 248,
     "machine_mib": 16384,
     "reserve_mib": 256,
-    "headroom_mib": 1979,
-    "room_mib": 238
+    "headroom_mib": 2200,
+    "room_mib": 248
   },
   "watch": {
     "level": "green",
@@ -32,13 +32,13 @@
   },
   "holds": [
     {
-      "name": "01794505819161925000-0000083415-000004-demo_wait",
+      "name": "01794508105939249000-0000092816-000004-demo_wait",
       "label": "demo:wait",
-      "pid": 83415,
-      "start_ns": 1794505819161925000,
-      "held_for_s": 2.5008179999999998,
-      "arrival_ns": 1794505819160597000,
-      "need_mib": 1485,
+      "pid": 92816,
+      "start_ns": 1794508105939249000,
+      "held_for_s": 2.284544,
+      "arrival_ns": 1794508105937996000,
+      "need_mib": 1696,
       "footprint_mib": 0,
       "stops": 0,
       "owner_exited": false,

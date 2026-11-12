@@ -1,4 +1,4 @@
-{"time_ns":1794505806995202000,"label":"demo:short","waited_s":0.002193958,"ran_s":1.008625375,"user_s":0.000394,"sys_s":0.000881,"mem_peak_kib":1008,"exit":0,"fail_open":""}
-{"time_ns":1794505808013376000,"label":"demo:long","waited_s":0.002586041,"ran_s":8.007422833,"user_s":0.000898,"sys_s":0.002039,"mem_peak_kib":1008,"exit":0,"fail_open":""}
-{"time_ns":1794505816073126000,"label":"demo:long","waited_s":0.002253875,"ran_s":3.030686125,"user_s":0.000654,"sys_s":0.001261,"mem_peak_kib":1008,"exit":143,"fail_open":""}
-{"time_ns":1794505816052040000,"label":"demo:short","waited_s":0.002535375,"ran_s":3.062801583,"user_s":0.000581,"sys_s":0.001202,"mem_peak_kib":1008,"exit":143,"fail_open":""}
+{"time_ns":1794508093765324000,"label":"demo:short","waited_s":0.004682375,"ran_s":1.009306417,"user_s":0.000587,"sys_s":0.001555,"mem_peak_kib":1008,"exit":0,"fail_open":""}
+{"time_ns":1794508094788917000,"label":"demo:long","waited_s":0.002435375,"ran_s":8.00836025,"user_s":0.001002,"sys_s":0.002086,"mem_peak_kib":1008,"exit":0,"fail_open":""}
+{"time_ns":1794508102832528000,"label":"demo:short","waited_s":0.002123917,"ran_s":3.042835084,"user_s":0.000475,"sys_s":0.000855,"mem_peak_kib":1008,"exit":143,"fail_open":""}
+{"time_ns":1794508102849725000,"label":"demo:long","waited_s":0.001880833,"ran_s":3.037328416,"user_s":0.000478,"sys_s":0.00078,"mem_peak_kib":1008,"exit":143,"fail_open":""}

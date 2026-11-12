@@ -78,7 +78,7 @@ enum Fixture {
         }
         let mem = try #require(doc.mem)
         #expect(mem.machineMiB == nil && mem.reserveMiB == nil && mem.headroomMiB == nil)
-        #expect(mem.roomMiB == nil && mem.freeMiB == 282)
+        #expect(mem.roomMiB == nil && mem.freeMiB == 205)
     }
 
     // Mutation: spell Degraded's `first_ns` as `firstNS`; red, since only this case has a record.

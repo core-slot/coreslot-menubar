@@ -7,7 +7,7 @@
   "format_understood": true,
   "format_error": "",
   "gen": 6,
-  "reconciled_ns": 1794505806995881000,
+  "reconciled_ns": 1794508093767275000,
   "config_error": "",
   "degraded": null,
   "section": {
@@ -16,11 +16,11 @@
   },
   "mem": {
     "reserved_mib": 0,
-    "free_mib": 1754,
+    "free_mib": 2006,
     "machine_mib": 16384,
     "reserve_mib": 256,
-    "headroom_mib": 2010,
-    "room_mib": 1754
+    "headroom_mib": 2262,
+    "room_mib": 2006
   },
   "watch": {
     "level": "green",

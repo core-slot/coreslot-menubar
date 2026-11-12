@@ -4,8 +4,10 @@
 #   CORESLOT_STATE_DIR="$(mktemp -d)" scripts/make-fixtures.sh "$(command -v coreslot)"
 #
 # Writes Tests/CoreslotKitTests/Fixtures/status-<name>.json and telemetry-<name>/ (the state
-# directory's telemetry/ and log/ as they were at that reading), for each state below. Needs jq
-# and python3. Nothing is written into the repository unless every check at the end passes.
+# directory's telemetry/ and log/ as they were at that reading), for each state below, and
+# report.json (`report --days 1 --json` at the end). The state directory's path becomes
+# /tmp/coreslot-fixture-state. Needs jq and python3. Nothing is written into the repository
+# unless every check at the end passes.
 set -euo pipefail
 
 die() { echo "make-fixtures: $*" >&2; exit 1; }
@@ -168,12 +170,16 @@ until_status "a dead ticket" '[.tickets[] | select(.state == "dead")] | length =
 capture dead
 kill -TERM "$hold"
 finish "$hold" 143
+"$cor" report --days 1 --json >"$stage/report.json" || die "report --json failed"
 
-# Process names become proc-1, proc-2, ...; then nothing may name another label, the user or home.
-python3 -I - "$stage" "$(id -un)" "$HOME" <<'PY'
+# The state directory's path becomes a placeholder and process names become proc-1, proc-2, ...;
+# then nothing may name another label, a temporary directory, the user or home.
+python3 -I - "$stage" "$(id -un)" "$HOME" "$state" "$(cd "$state" && pwd -P)" <<'PY'
 import json, os, sys
 
 stage, user, home = sys.argv[1], sys.argv[2], sys.argv[3]
+state_paths = sorted({sys.argv[4], sys.argv[5]}, key=len, reverse=True)
+placeholder = "/tmp/coreslot-fixture-state"
 names = {}
 
 def alias(name):
@@ -189,21 +195,29 @@ def labels(value, path):
         for i, v in enumerate(value):
             yield from labels(v, "%s[%d]" % (path, i))
 
+def placed(line):
+    for p in state_paths:
+        line = line.replace(p, placeholder)
+    return line
+
 files = sorted(os.path.join(d, f) for d, _, fs in os.walk(stage) for f in fs)
 for path in files:
+    with open(path, encoding="utf-8") as f:
+        lines = [placed(line) for line in f]
     if not path.endswith(".jsonl"):
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
         continue
     out = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            o = json.loads(line)
-            if o.get("e") == "memory":
-                for p in o.get("top") or []:
-                    p["name"] = alias(p["name"])
-                if o.get("vm"):
-                    o["vm"]["name"] = alias(o["vm"]["name"])
-                line = json.dumps(o, separators=(",", ":"), ensure_ascii=False) + "\n"
-            out.append(line)
+    for line in lines:
+        o = json.loads(line)
+        if o.get("e") == "memory":
+            for p in o.get("top") or []:
+                p["name"] = alias(p["name"])
+            if o.get("vm"):
+                o["vm"]["name"] = alias(o["vm"]["name"])
+            line = json.dumps(o, separators=(",", ":"), ensure_ascii=False) + "\n"
+        out.append(line)
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(out)
 
@@ -216,7 +230,7 @@ for path in files:
     for i, doc in enumerate(docs):
         bad += ["%s:%d %s is %r" % (rel, i + 1, p, v) for p, v in labels(doc, "")]
     for i, line in enumerate(text.splitlines()):
-        for word in (user, home):
+        for word in (user, home, "/var/", "/private/", *state_paths):
             if word and word.lower() in line.lower():
                 bad.append("%s:%d carries %r" % (rel, i + 1, word))
 if bad:
@@ -224,7 +238,7 @@ if bad:
 PY
 
 mkdir -p "$out"
-find "$out" -maxdepth 1 \( -name 'status-*.json' ! -name 'status-0.7.0.json' -o -name 'telemetry-*' \) \
+find "$out" -maxdepth 1 \( -name 'status-*.json' ! -name 'status-0.7.0.json' -o -name 'telemetry-*' -o -name report.json \) \
     -exec rm -rf {} +
 cp -R "$stage"/. "$out"/
 echo "make-fixtures: wrote $(ls "$stage" | wc -l | tr -d ' ') entries to $out"
