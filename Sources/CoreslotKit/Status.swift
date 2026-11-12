@@ -26,6 +26,9 @@ public struct StatusDocument: Decodable, Sendable, Equatable {
     public let cancelRequests: [String]
     public let ignored: [String: Int64]
     public let observedS: Double
+    /// True for a document of another schema or of a coreslot too old to decode: only its notices
+    /// are shown, and its other keys, which are invented, are not read.
+    public internal(set) var isSchemaOnly = false
 
     enum CodingKeys: String, CodingKey {
         case schema

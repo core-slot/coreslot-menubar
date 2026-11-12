@@ -26,9 +26,9 @@ public enum Words {
         }
     }
 
-    /// The level, then each notice's sentence.
-    public static func header(_ watch: StatusDocument.Watch, notices: [Notice]) -> String {
-        ([level(watch)] + notices.compactMap(notice)).joined(separator: " · ")
+    /// The level, then each notice's sentence; the sentences alone for a schema-only document.
+    public static func header(_ doc: StatusDocument, notices: [Notice]) -> String {
+        ((doc.isSchemaOnly ? [] : [level(doc.watch)]) + notices.compactMap(notice)).joined(separator: " · ")
     }
 
     /// Why a ticket waits, from its run's latest `waiting` line; nil for a code this app does not

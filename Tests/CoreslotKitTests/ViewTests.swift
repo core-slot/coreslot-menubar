@@ -128,16 +128,17 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
     }
 
     // Mutation: put `degraded.reason` in the sentence without SafeText; the U+202E arrives, red.
-    @Test func theNotices() {
-        #expect(Words.header(watch("green"), notices: [.tooOld(Version(0, 7, 0))])
-            == "Memory normal · Update coreslot to 0.8.0 or later")
+    // Mutation: say the level for a schema-only document too; "No recent reading · …", red.
+    @Test func theNotices() throws {
+        #expect(Words.header(try document("status-queue.json"), notices: [.tooOld(Version(0, 7, 0))])
+            == "Learning · Update coreslot to 0.8.0 or later")
         #expect(Words.notice(.degraded("lock\u{202E}txt")) == "coreslot is degraded: lock\\u{202E}txt")
         #expect(Words.notice(.configError("bad\nline")) == "coreslot's configuration has a problem: bad\\u{000A}line")
         #expect(Words.notice(.formatNotUnderstood) == "This coreslot writes a format this app does not know")
         #expect(Words.notice(.schema(2)) == "This coreslot's status document is newer than this app")
         #expect(Words.notice(.development) == nil)
-        #expect(Words.header(watch(""), notices: [.schema(2), .development])
-            == "No recent reading · This coreslot's status document is newer than this app")
+        #expect(Words.header(.schemaOnly(2), notices: [.schema(2), .development])
+            == "This coreslot's status document is newer than this app")
     }
 
     // Mutation: drop "on the machine" for a container request; red.

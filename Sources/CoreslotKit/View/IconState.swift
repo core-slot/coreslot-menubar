@@ -6,9 +6,7 @@ public enum IconState: Sendable, Equatable {
     case idle, running(fill: Int), waiting(fill: Int), pressure, unavailable
 
     public init(_ reading: StatusReading) {
-        guard case .document(let doc, let notices) = reading,
-              !notices.contains(where: { if case .schema = $0 { true } else { false } })
-        else {
+        guard case .document(let doc, _) = reading, !doc.isSchemaOnly else {
             self = .unavailable
             return
         }

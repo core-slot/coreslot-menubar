@@ -16,19 +16,18 @@ public enum StatusReading: Sendable, Equatable {
 }
 
 /// What one run of `coreslot status --json` says. A stdout that decodes is a document whatever
-/// the exit code: `status` prints its document and then exits 3 when runs fail open.
+/// the exit code: `status` prints its document and then exits 3 when runs fail open. A document
+/// of another schema, or one from a coreslot too old to decode, is schema-only: notices alone.
 public func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading {
     if r.timedOut { return .problem(.timedOut) }
     guard let code = r.exitCode else { return .problem(.notFound) }
     if r.stdout.contains(where: { !$0.isWhitespace }) {
-        if let doc = try? StatusDocument.decode(r.stdout) {
-            return .document(doc, notices(doc, binary))
-        }
-        // Another schema may not decode as schema 1; the header then names the number alone.
+        let only = { (schema: Int64) in StatusReading.document(.schemaOnly(schema), notices(.schemaOnly(schema), binary)) }
         if let probe = try? JSONDecoder().decode(SchemaProbe.self, from: r.stdout), probe.schema != 1 {
-            let doc = StatusDocument.schemaOnly(probe.schema)
-            return .document(doc, notices(doc, binary))
+            return only(probe.schema)
         }
+        if let doc = try? StatusDocument.decode(r.stdout) { return .document(doc, notices(doc, binary)) }
+        if !binary.version.isDevelopment, binary.version < .minimum { return only(1) }
         return .problem(.malformed)
     }
     if code == 3 { return .problem(.stateUnreadable(stderr: String(decoding: r.stderr, as: UTF8.self))) }
@@ -52,14 +51,14 @@ private func notices(_ doc: StatusDocument, _ binary: CoreslotBinary) -> [Notice
 }
 
 extension StatusDocument {
-    /// A document of another schema, carried for its number alone: nothing else in it was read.
+    /// A document carried for its schema and the notices alone: nothing else in it was read.
     static func schemaOnly(_ schema: Int64) -> StatusDocument {
         StatusDocument(
             schema: schema, stateDir: "", stateDirExists: false, format: 0, formatPresent: false,
             formatUnderstood: true, formatError: "", gen: 0, reconciledNS: 0, configError: "", degraded: nil,
             section: Section(held: false, holder: nil), mem: nil,
             watch: Watch(level: "", excessPoints: 0, protecting: false, reason: "", nextVictim: "", learning: 0),
-            holds: [], tickets: [], deadHolds: [], cancelRequests: [], ignored: [:], observedS: 0)
+            holds: [], tickets: [], deadHolds: [], cancelRequests: [], ignored: [:], observedS: 0, isSchemaOnly: true)
     }
 }
 

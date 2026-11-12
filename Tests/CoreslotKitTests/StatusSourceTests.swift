@@ -55,21 +55,21 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
         #expect(interpret(RunResult(exitCode: 0, stdout: Data("{".utf8)), binary: release) == .problem(.malformed))
     }
 
-    // Mutation: drop the schema notice; red.
+    // Mutation: decode before the schema probe; the schema-2 document that decodes keeps its holds, red.
     // Mutation: drop the schema probe; the document of another shape is .malformed, red.
-    @Test func anotherSchemaIsANotice() throws {
+    @Test func anotherSchemaIsANoticeOnly() throws {
         let decodable = try with("status-queue.json") { $0["schema"] = 2 }
-        guard case .document(_, let n1) = interpret(RunResult(exitCode: 0, stdout: decodable), binary: release) else {
-            Issue.record("not a document")
-            return
+        for data in [decodable, Data(#"{"schema": 2, "queue": []}"#.utf8)] {
+            #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: release) == .document(.schemaOnly(2), [.schema(2)]))
         }
-        #expect(n1 == [.schema(2)])
-        let other = Data(#"{"schema": 2, "queue": []}"#.utf8)
-        guard case .document(let doc, let n2) = interpret(RunResult(exitCode: 0, stdout: other), binary: release) else {
-            Issue.record("not a document")
-            return
-        }
-        #expect(n2 == [.schema(2)] && doc.schema == 2 && doc.holds.isEmpty)
+    }
+
+    // Mutation: drop the too-old branch for a stdout that does not decode; it is .malformed, red.
+    @Test func aCoreslotOlderThan04IsTooOldNotMalformed() throws {
+        let data = try with("status-0.7.0.json") { $0["watch"] = nil; $0["mem"] = nil }
+        let old = CoreslotBinary(url: release.url, version: Version(0, 3, 0))
+        #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: old) == .document(.schemaOnly(1), [.tooOld(old.version)]))
+        #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: release) == .problem(.malformed))
     }
 
     // Mutation: drop the tooOld branch; red.
