@@ -65,6 +65,8 @@ public enum Words {
             ("coreslot was not found", "Install coreslot \(Version.minimum) or later in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")
         case .stateUnreadable:
             ("coreslot cannot read its state", "Run coreslot doctor in a terminal to see why.")
+        case .failed(let code) where code < 0: // -errno: it could not be started or waited for
+            ("coreslot status could not be run (system error \(-code))", "The next reading tries again.")
         case .failed(let code):
             ("coreslot status failed with exit status \(code)", "Run coreslot doctor in a terminal to see why.")
         case .malformed:

@@ -185,11 +185,11 @@ extension Store {
         let part = { (k: MemoryBar.Kind) in bar.segments.first { $0.kind == k }?.mib ?? 0 }
         if !doc.holds.isEmpty { m.legend.append(.init(kind: .holds(colors: doc.holds.map { color($0.label) }), text: "coreslot \(Formatting.size(held))")) }
         m.legend.append(.init(kind: .outside, text: "outside \(Formatting.size(part(.outside)))"))
-        if part(.setAside) > 0 { m.legend.append(.init(kind: .setAside(short: bar.shortfallMiB != nil), text: "set aside \(Formatting.size(part(.setAside)))")) }
+        if bar.setAsideMiB > 0 { m.legend.append(.init(kind: .setAside(short: bar.shortfallMiB != nil), text: "set aside \(Formatting.size(bar.setAsideMiB))")) }
         m.legend.append(.init(kind: .room, text: "free \(Formatting.size(part(.room)))"))
         m.legend.append(.init(kind: .reserve, text: "reserve \(Formatting.size(part(.reserve)))"))
-        if let short = bar.shortfallMiB, let headroom = mem.headroomMiB, let reserve = mem.reserveMiB, let room = mem.roomMiB {
-            m.shortfall = "Set aside \(Formatting.size(headroom - reserve - room)), \(Formatting.size(short)) short"
+        if let short = bar.shortfallMiB {
+            m.shortfall = "Set aside \(Formatting.size(bar.setAsideMiB)), \(Formatting.size(short)) short"
         }
         // A list of the largest processes, not of what is outside coreslot; "others" closes it.
         if let line = record.memory, !line.top.isEmpty, nowNS - line.timeNS <= 120_000_000_000 {

@@ -208,6 +208,11 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(Words.problem(.failed(exitCode: 70)).state == "coreslot status failed with exit status 70")
         #expect(Words.problem(.notFound).fix.contains("0.8.0"))
     }
+
+    // Mutation: drop the negative case; -24 reads "failed with exit status -24", red.
+    @Test func aStartFailureIsNotAnExitStatus() {
+        #expect(Words.problem(.failed(exitCode: -EMFILE)) == ("coreslot status could not be run (system error 24)", "The next reading tries again."))
+    }
 }
 
 @Suite struct FormattingTests {

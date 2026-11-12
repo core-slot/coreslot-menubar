@@ -54,11 +54,10 @@ final class Store {
 
     var icon: IconState { reading.map(IconState.init) ?? .idle }
 
-    /// The document, unless its schema is one this app does not read.
+    /// The document, unless it is schema-only: another schema, or too old a coreslot to decode,
+    /// whose `state_dir`, `watch` and `mem` are invented and feed nothing.
     var document: StatusDocument? {
-        guard case .document(let doc, let notices) = reading,
-              !notices.contains(where: { if case .schema = $0 { true } else { false } })
-        else { return nil }
+        guard case .document(let doc, _) = reading, !doc.isSchemaOnly else { return nil }
         return doc
     }
 
@@ -177,6 +176,8 @@ struct RecordSnapshot: Sendable {
 actor RecordReader {
     private static let keepS: TimeInterval = 24 * 60 * 60
     private static let chunk = 1 << 20
+    /// At most this many chunks of each log per update: a backlog is read over several updates.
+    private static let chunksPerUpdate = 16
 
     private var snapshot = RecordSnapshot()
     private var samples: JSONLTail?
@@ -210,7 +211,7 @@ actor RecordReader {
             if let r = RunLogLine(line: line), r.timeNS >= cutNS { snapshot.finished.append(r) }
         }
         snapshot.finished.removeAll { $0.timeNS < cutNS }
-        snapshot.runs.drop(endedBefore: cutNS)
+        snapshot.runs.prune(endedBefore: at.addingTimeInterval(-Self.keepS))
         if let doc {
             snapshot.tracks.add(doc, at: at)
             snapshot.tracks.keep(only: Set(doc.holds.map(\.name)))
@@ -219,11 +220,16 @@ actor RecordReader {
         return snapshot
     }
 
-    /// Every complete line there now, a chunk at a time; a log that cannot be read gives none
-    /// until it can.
+    /// The complete lines there now, a chunk at a time, up to `chunksPerUpdate` chunks; the rest
+    /// comes with the next update. A read can give no lines before the end, so the tail's own
+    /// `atEnd` ends the loop. A log that cannot be read gives none until it can.
     private func drain(_ tail: inout JSONLTail?, _ each: (Data) -> Void) {
         guard var t = tail else { return }
-        while let lines = try? t.read(maxBytes: Self.chunk), !lines.isEmpty { lines.forEach(each) }
+        for _ in 0..<Self.chunksPerUpdate {
+            guard let lines = try? t.read(maxBytes: Self.chunk) else { break }
+            lines.forEach(each)
+            if t.atEnd { break }
+        }
         tail = t
     }
 }
