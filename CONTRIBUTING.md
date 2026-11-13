@@ -63,6 +63,9 @@ The fixtures are found from the executable up to `Package.swift`, or named with
   variant in an ordinary window, at the fixture's newest moment, with every row's hover actions
   shown, and prints one line per window, `present-window <kind> <name> <window number>`, then
   `present-ready`. Capture a window with `screencapture -x -o -l <window number> out.png`.
+- `timeline[-15m|-1h|-6h|-24h][:NAME][@SECONDS]` as a `--present` name opens the timeline window
+  over variant `NAME` (the queue by default) at that range (15 minutes by default), scrolled back
+  by `SECONDS` when given: `timeline-6h:night@1800`.
 
 ```sh
 swift run coreslot-menubar --present all --appearance dark
@@ -76,10 +79,14 @@ nothing printed), `exit-64`, `exit-70`, `malformed` and `timeout`; the queue wit
 looking off, `record-off`; holds reserving more than the machine has, `shortfall`; labels and a
 degraded reason with control, bidirectional, zero-width and tag characters and a container hold,
 `untrusted`; more rows than the popover shows unscrolled, `many`; holds whose process the app
-cannot read, `unchecked`; and `icons`, every state of the menu bar icon. `alert-stop`,
+cannot read, `unchecked`; two hours of made-up record before the queue's moment, with waits and
+their reasons, a watchdog stop and its restart, a run past its timeout, a silence and a failed
+reading, `night`, written under the temporary directory, and the same with the record looking off,
+`record-off-night`; and `icons`, every state of the menu bar icon. `alert-stop`,
 `alert-cancel` and `alert-refused` show the stop confirmation (with a command line holding hidden
 characters), the cancel confirmation and the refusal over the queue; an alert draws only while it
-runs, so name one per launch, and `all` leaves them out.
+runs, so name one per launch, and `all` leaves them out. `all` adds the timeline at each range over
+the queue and over `night`, and over `record-off` and `record-off-night`.
 
 Two more debug flags drive a stop through the app's own path against a real `coreslot`, without a
 click: `--answer yes|no` answers every confirmation unseen and prints its text to stderr, and

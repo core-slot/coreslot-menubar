@@ -105,11 +105,21 @@ public struct EventLine: JSONLine, Sendable, Equatable {
         public let stoppedBy: String?
         /// The signal that killed the command, by name.
         public let signal: String?
+        /// The attempt's run-log line, for its exit status and peak; nil when it does not decode,
+        /// which costs the line nothing.
+        public let record: RunLogLine?
 
         enum CodingKeys: String, CodingKey {
             case failOpen = "fail_open"
             case stoppedBy = "stopped_by"
-            case signal
+            case signal, record
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            (failOpen, stoppedBy) = (try c.decodeIfPresent(String.self, forKey: .failOpen), try c.decodeIfPresent(String.self, forKey: .stoppedBy))
+            signal = try c.decodeIfPresent(String.self, forKey: .signal)
+            record = (try? c.decodeIfPresent(RunLogLine.self, forKey: .record)) ?? nil
         }
     }
 

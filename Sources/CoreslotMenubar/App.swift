@@ -24,7 +24,7 @@ struct CoreslotApp: App {
         .menuBarExtraStyle(.window)
 
         Window("Timeline", id: "timeline") {
-            TimelinePlaceholder()
+            TimelineView(store: delegate.store)
                 .background(WindowVisibility { delegate.store.setVisible(.timeline, $0) })
                 .onAppear { delegate.timelineOpen(true) }
                 .onDisappear { delegate.timelineOpen(false) }
@@ -46,15 +46,6 @@ private struct MenuBarLabel: View {
         Image(nsImage: MenuBarIcon.image(for: store.icon))
             .accessibilityLabel(MenuBarIcon.words(store.icon))
             .onAppear { delegate.openTimeline = { openWindow(id: "timeline") } }
-    }
-}
-
-/// The timeline window's place until its charts exist.
-struct TimelinePlaceholder: View {
-    var body: some View {
-        Text("The timeline is not built yet.")
-            .foregroundStyle(.secondary)
-            .frame(minWidth: 640, minHeight: 400)
     }
 }
 

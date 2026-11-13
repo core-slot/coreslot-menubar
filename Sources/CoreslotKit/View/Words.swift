@@ -58,6 +58,20 @@ public enum Words {
         return ageS > 5 ? "\(text) · \(Formatting.duration(Double(ageS))) ago" : text
     }
 
+    /// A reason's name, for the timeline's legend; nil for a code this app does not know.
+    public static func reasonName(_ code: String) -> String? {
+        switch code {
+        case "room_short": "Not enough free memory"
+        case "behind_head": "Behind the first in line"
+        case "behind_ticket": "Waits its turn"
+        case "section_busy": "Waiting for the queue"
+        case "watch_level": "Memory is tight"
+        case "watch_spacing": "One at a time after memory pressure"
+        case let r where r.hasPrefix("restart_"): "Restarting after a memory stop"
+        default: nil
+        }
+    }
+
     /// The one state shown when there is no document, and what to do about it.
     public static func problem(_ problem: Problem) -> (state: String, fix: String) {
         switch problem {

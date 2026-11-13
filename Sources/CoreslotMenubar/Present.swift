@@ -5,8 +5,10 @@ import SwiftUI
 
 /// Debug-only launch flags. `--fixture NAME` runs the whole app over a recorded state;
 /// `--present NAME[,NAME…]|all [--appearance light|dark]` opens the popover's content over each in
-/// an ordinary window and prints `present-window <kind> <name> <window number>` per window, then
-/// `present-ready`. `--fixtures-dir DIR` names the fixtures; by default they are found from the
+/// an ordinary window, or for `timeline[-RANGE][:NAME][@SECONDS]` the timeline window over that
+/// variant (the queue by default) at that range (15m, 1h, 6h, 24h; 15m by default), scrolled back
+/// by SECONDS if given, and prints
+/// `present-window <kind> <name> <window number>` per window, then `present-ready`. `--fixtures-dir DIR` names the fixtures; by default they are found from the
 /// executable up to `Package.swift`. `--answer yes|no` answers every confirmation unseen and
 /// prints its text to stderr; with `--ask-stop LABEL` the first stoppable hold of that label is
 /// asked to stop once: together they drive a stop through the app's own path.
@@ -21,6 +23,8 @@ enum Present {
         var result: (@Sendable (Data) -> RunResult)?
         /// False: the app cannot read any hold's process.
         var readable = true
+        /// Two hours of made-up record before the queue's moment, for the timeline's look.
+        var night = false
 
         /// The 0.7.0 document is the queue fixture with keys removed; its record is the queue's.
         var telemetry: String { fixture == "0.7.0" ? "queue" : fixture }
@@ -75,6 +79,8 @@ enum Present {
         }, result: exit3),
         .init(name: "many", change: many),
         .init(name: "unchecked", readable: false),
+        .init(name: "night", night: true),
+        .init(name: "record-off-night", record: .looksOff, night: true),
     ]
 
     /// The confirmations and a refusal, over the queue fixture. An alert draws only while it runs
@@ -97,10 +103,10 @@ enum Present {
     static func runIfAsked(_ args: [String]) -> Bool {
         guard let list = value("--present", args) else { return false }
         let fixtures = fixturesDirectory(args)
-        let chosen = list == "all" ? variants.map(\.name) + ["icons"] : list.split(separator: ",").map(String.init)
+        let chosen = list == "all" ? variants.map(\.name) + ["icons"] + timelines : list.split(separator: ",").map(String.init)
         if chosen.filter(alerts.contains).count > 1 { fail("name one of \(alerts.joined(separator: ", ")) per launch") }
-        for name in chosen where name != "icons" && !alerts.contains(name) && !variants.contains(where: { $0.name == name }) {
-            fail("no variant \(name); the variants are \(variants.map(\.name).joined(separator: ", ")), icons, \(alerts.joined(separator: ", ")) and all")
+        for name in chosen where name != "icons" && !alerts.contains(name) && timeline(name) == nil && !variants.contains(where: { $0.name == name }) {
+            fail("no variant \(name); the variants are \(variants.map(\.name).joined(separator: ", ")), icons, \(alerts.joined(separator: ", ")), timeline[-15m|-1h|-6h|-24h][:VARIANT] and all")
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
@@ -117,6 +123,13 @@ enum Present {
                     continue
                 }
                 if alerts.contains(name) { continue }
+                if let (range, variant, back) = timeline(name) {
+                    let store = Store(feed: feed(variant, fixtures: fixtures, live: false))
+                    await store.readOnce()
+                    let end = back.map { store.now.addingTimeInterval(-$0) }
+                    show(TimelineView(store: store, range: range, end: end).frame(width: 980, height: 760), kind: "timeline", name: name, at: i)
+                    continue
+                }
                 let store = Store(feed: feed(variants.first { $0.name == name }!, fixtures: fixtures, live: false))
                 await store.readOnce()
                 show(PopoverView(store: store, openTimeline: {}).environment(\.revealsRowActions, true), kind: "popover", name: name, at: i)
@@ -140,13 +153,33 @@ enum Present {
         return feed(v, fixtures: fixturesDirectory(args), live: true)
     }
 
+    /// What `all` shows of the timeline: each range over the queue, and the record looking off.
+    static let timelines = [
+        "timeline-15m", "timeline-1h", "timeline-6h", "timeline-24h", "timeline:record-off",
+        "timeline-15m:night", "timeline-1h:night", "timeline-6h:night", "timeline-24h:night", "timeline-1h:record-off-night",
+    ]
+
+    /// `timeline[-RANGE][:VARIANT][@SECONDS]`; nil for any other name.
+    private static func timeline(_ name: String) -> (Series.Range, Variant, TimeInterval?)? {
+        guard name.hasPrefix("timeline") else { return nil }
+        let at = name.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        let parts = at[0].dropFirst("timeline".count).split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        let ranges: [String: Series.Range] = ["": .quarterHour, "-15m": .quarterHour, "-1h": .hour, "-6h": .sixHours, "-24h": .day]
+        guard let range = ranges[String(parts.first ?? "")] else { return nil }
+        let back = at.count > 1 ? TimeInterval(at[1]) : nil
+        if at.count > 1 && back == nil { return nil }
+        let variant = parts.count > 1 ? String(parts[1]) : "queue"
+        return variants.first { $0.name == variant }.map { (range, $0, back) }
+    }
+
     private static var windows: [NSWindow] = []
 
     private static func show(_ view: some View, kind: String, name: String, at index: Int) {
         let host = NSHostingController(rootView: view)
         host.sizingOptions = .preferredContentSize
+        host.sceneBridgingOptions = [.toolbars]
         let window = NSWindow(contentViewController: host)
-        window.styleMask = [.titled, .closable]
+        window.styleMask = kind == "timeline" ? [.titled, .closable, .resizable] : [.titled, .closable]
         window.title = "\(kind) · \(name)"
         window.isReleasedWhenClosed = false
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -199,8 +232,9 @@ enum Present {
         }
         let status = v.result?(stdout) ?? RunResult(exitCode: 0, stdout: stdout)
         let report = RunResult(exitCode: 0, stdout: (try? Data(contentsOf: fixtures.appending(path: "report.json"))) ?? Data())
-        let telemetry = fixtures.appending(path: "telemetry-\(v.telemetry)", directoryHint: .isDirectory)
+        var telemetry = fixtures.appending(path: "telemetry-\(v.telemetry)", directoryHint: .isDirectory)
         let then = newest(status: original, telemetry: telemetry)
+        if v.night { telemetry = night(before: then) }
         let launched = Date()
         let binary = CoreslotBinary(url: URL(filePath: "/fixture/coreslot"), version: v.version)
         let found = v.name != "not-found"
@@ -222,6 +256,68 @@ enum Present {
         return Feed(
             locate: locate, runner: runner, stateDir: telemetry, clock: clock, record: v.record,
             inspector: FixtureInspector(readable: v.readable), signal: { _, _ in EPERM })
+    }
+
+    /// Two hours of made-up record before `then`, written under the temporary directory, never a
+    /// state directory: runs of three labels with waits and their reasons, a watchdog stop and its
+    /// restart, a run that went on after its timeout, a six-minute silence and a failed reading.
+    private nonisolated static func night(before then: Date) -> URL {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "coreslot-present-night-\(getpid())", directoryHint: .isDirectory)
+        for sub in ["telemetry", "log"] {
+            try? FileManager.default.createDirectory(at: dir.appending(path: sub), withIntermediateDirectories: true)
+        }
+        let end = Int64(then.timeIntervalSince1970), start = end - 7200
+        let labels = ["demo:build", "demo:test", "demo:lint"], peaks: [Int64] = [2600, 1500, 700]
+        typealias Run = (k: Int, attempt: Int64, arrival: Int64, admitted: Int64, end: Int64)
+        var runs: [Run] = []
+        for k in 0..<15 {
+            let arrival = start + 300 + Int64(k) * 440, wait = Int64(k % 3) * 50, ran = 200 + Int64(k % 4) * 70
+            runs.append((k, 1, arrival, arrival + wait, arrival + wait + ran))
+            if k == 5 { runs.append((k, 2, arrival + wait + ran + 3, arrival + wait + ran + 48, arrival + wait + ran + 308)) }
+        }
+        let ns = { (s: Int64) in s * 1_000_000_000 }
+        var events: [String] = [], log: [String] = []
+        for r in runs {
+            let (label, peak, id) = (labels[r.k % 3], peaks[r.k % 3], "night-\(r.k)")
+            var n = 0
+            let line = { (t: Int64, e: String, extra: String) -> String in
+                n += 1
+                return #"{"v":1,"e":"\#(e)","run":"\#(id)","attempt":\#(r.attempt),"n":\#(n),"time_ns":\#(ns(t)),"label":"\#(label)"\#(extra)}"#
+            }
+            events.append(line(r.arrival, "enqueue", #","ticket":"t-\#(id)-\#(r.attempt)","typical_s":300,"real_memory":false,"need_mib":\#(peak)"#))
+            let reason = r.attempt > 1 ? "restart_calm" : r.k % 2 == 0 ? "room_short" : "behind_head"
+            for t in stride(from: r.arrival, to: r.admitted, by: 30) {
+                events.append(line(t, "waiting", #","reason":"\#(reason)","room_mib":400"#))
+            }
+            events.append(line(r.admitted, "admitted", #","hold":"h-\#(id)-\#(r.attempt)""#))
+            let stopped = r.k == 5 && r.attempt == 1, timedOut = r.k == 9
+            let record = #"{"time_ns":\#(ns(r.arrival)),"label":"\#(label)","waited_s":\#(r.admitted - r.arrival),"ran_s":\#(r.end - r.admitted),"mem_peak_kib":\#(peak * 1024),"exit":\#(stopped ? 137 : 0),"fail_open":"\#(timedOut ? "timeout" : "")""#
+            log.append(record + (stopped ? #","stops":1}"# : "}"))
+            let marks = stopped ? #","stopped_by":"watchdog_red","signal":"KILL""# : timedOut ? #","fail_open":"timeout""# : ""
+            events.append(line(r.end, "ended", #","hold":"h-\#(id)-\#(r.attempt)","record":\#(record)}\#(marks)"#))
+        }
+        events.append(#"{"v":1,"e":"memory","time_ns":\#(ns(end - 10)),"top":[{"name":"proc-1","footprint_mib":4885},{"name":"proc-2","footprint_mib":1508},{"name":"proc-3","footprint_mib":1323}],"vm":{"name":"proc-vm","footprint_mib":2210}}"#)
+        var samples: [String] = []
+        for t in stride(from: start, through: end, by: 2) where !(end - 4800..<end - 4440).contains(t) {
+            if t == end - 3000 {
+                samples.append(#"{"v":1,"time_ns":\#(ns(t)),"headroom_ok":false,"headroom_mib":0,"reserve_mib":256,"room_mib":0,"jobs":[]}"#)
+                continue
+            }
+            let live = runs.filter { $0.admitted <= t && t < $0.end }
+            let jobs = live.map { r -> (String, String, Int64, Int64) in
+                let peak = peaks[r.k % 3]
+                return ("h-night-\(r.k)-\(r.attempt)", labels[r.k % 3], peak * min(120, t - r.admitted) / 120, peak)
+            }
+            let outside = 6200 + Int64(800 * sin(Double(t) / 900))
+            let held = jobs.reduce(0) { $0 + $1.2 }, growth = jobs.reduce(0) { $0 + $1.3 - $1.2 }
+            let headroom = 16384 - outside - held
+            let list = jobs.map { #"{"hold":"\#($0.0)","label":"\#($0.1)","footprint_mib":\#($0.2)}"# }.joined(separator: ",")
+            samples.append(#"{"v":1,"time_ns":\#(ns(t)),"headroom_ok":true,"headroom_mib":\#(headroom),"reserve_mib":256,"room_mib":\#(headroom - 256 - growth),"jobs":[\#(list)]}"#)
+        }
+        for (file, lines) in [("telemetry/samples.jsonl", samples), ("telemetry/events.jsonl", events), ("log/runs.jsonl", log)] {
+            try? Data((lines.joined(separator: "\n") + "\n").utf8).write(to: dir.appending(path: file))
+        }
+        return dir
     }
 
     /// The fixture's newest moment: its last line, or when its status document was read.

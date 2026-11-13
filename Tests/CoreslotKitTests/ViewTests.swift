@@ -188,6 +188,13 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(Words.reason(.init(reason: "behind_ticket"), needMiB: 1, realMemory: false, ageS: 5) == "Waits its turn")
     }
 
+    // Mutation: drop the `restart_` case; a restart's reason has no name, red.
+    @Test func theReasonsHaveNamesForTheLegend() {
+        let codes = ["room_short", "behind_head", "behind_ticket", "section_busy", "watch_level", "watch_spacing", "restart_calm"]
+        #expect(Set(codes.compactMap(Words.reasonName)).count == codes.count)
+        #expect(Words.reasonName("restart_margin") == Words.reasonName("restart_calm") && Words.reasonName("new_code") == nil)
+    }
+
     // Mutation: test `processChecked` before `container`; a container hold that was not checked, red.
     @Test func theQuietLine() {
         #expect(Words.quietLine(container: true, processChecked: false) == "Container work: stop the container")
