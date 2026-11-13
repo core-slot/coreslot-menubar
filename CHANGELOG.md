@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## Unreleased
 
+## v0.1.1 (2026-11-13)
+
 ### Added
 
 - The app's own log in the macOS unified log, subsystem `io.github.core-slot.menubar`: changes in
