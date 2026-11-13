@@ -1,0 +1,2 @@
+{"time_ns":1794508093765324000,"label":"demo:short","waited_s":0.004682375,"ran_s":1.009306417,"user_s":0.000587,"sys_s":0.001555,"mem_peak_kib":1008,"exit":0,"fail_open":""}
+{"time_ns":1794508094788917000,"label":"demo:long","waited_s":0.002435375,"ran_s":8.00836025,"user_s":0.001002,"sys_s":0.002086,"mem_peak_kib":1008,"exit":0,"fail_open":""}

@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "state_dir": "/tmp/coreslot-fixture-state",
+  "state_dir_exists": true,
+  "format": 2,
+  "format_present": true,
+  "format_understood": true,
+  "format_error": "",
+  "gen": 20,
+  "reconciled_ns": 1794508093767275000,
+  "config_error": "",
+  "degraded": null,
+  "section": {
+    "held": false,
+    "holder": null
+  },
+  "mem": {
+    "reserved_mib": 1696,
+    "free_mib": 248,
+    "machine_mib": 16384,
+    "reserve_mib": 256,
+    "headroom_mib": 2200,
+    "room_mib": 248
+  },
+  "watch": {
+    "level": "green",
+    "excess_points": 0,
+    "protecting": true,
+    "reason": "",
+    "next_victim": "",
+    "learning": 1
+  },
+  "holds": [
+    {
+      "name": "01794508105939249000-0000092816-000004-demo_wait",
+      "label": "demo:wait",
+      "pid": 92816,
+      "start_ns": 1794508105939249000,
+      "held_for_s": 2.284544,
+      "arrival_ns": 1794508105937996000,
+      "need_mib": 1696,
+      "footprint_mib": 0,
+      "stops": 0,
+      "owner_exited": false,
+      "typical_s": 0,
+      "left_s": null,
+      "stoppable": true
+    }
+  ],
+  "tickets": [],
+  "dead_holds": [],
+  "cancel_requests": [],
+  "ignored": {
+    "cancel": 0,
+    "holds": 0,
+    "queue": 0
+  },
+  "observed_s": 0
+}

@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "days": 1,
+  "since_ns": 1794421708290828000,
+  "until_ns": 1794508108290828000,
+  "skipped_lines": 0,
+  "runs": 5,
+  "attempts": 5,
+  "fail_open_runs": 0,
+  "labels": 3,
+  "waits": {
+    "attempts": 0,
+    "total_s": 0,
+    "median_s": 0,
+    "p90_s": 0,
+    "longest_s": 0,
+    "over_2_min": 0,
+    "over_10_min": 0
+  },
+  "stops": {
+    "stopped_attempts": 0,
+    "lost_s": 0,
+    "gave_up_runs": 0
+  },
+  "heaviest": [
+    {
+      "label": "demo:long",
+      "runs": 2,
+      "attempts": 2,
+      "peak_mib": 1,
+      "need_mib": 1,
+      "ran_s": 11.045688666,
+      "waited_s": 0.004316208
+    },
+    {
+      "label": "demo:short",
+      "runs": 2,
+      "attempts": 2,
+      "peak_mib": 1,
+      "need_mib": 1,
+      "ran_s": 4.0521415009999995,
+      "waited_s": 0.006806292
+    },
+    {
+      "label": "demo:wait",
+      "runs": 1,
+      "attempts": 1,
+      "peak_mib": 1,
+      "need_mib": 1,
+      "ran_s": 2.34648,
+      "waited_s": 0.0021135
+    }
+  ]
+}

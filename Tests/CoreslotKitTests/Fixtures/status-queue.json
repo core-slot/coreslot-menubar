@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "state_dir": "/tmp/coreslot-fixture-state",
+  "state_dir_exists": true,
+  "format": 2,
+  "format_present": true,
+  "format_understood": true,
+  "format_error": "",
+  "gen": 12,
+  "reconciled_ns": 1794508093767275000,
+  "config_error": "",
+  "degraded": null,
+  "section": {
+    "held": false,
+    "holder": null
+  },
+  "mem": {
+    "reserved_mib": 1745,
+    "free_mib": 205,
+    "machine_mib": 16384,
+    "reserve_mib": 256,
+    "headroom_mib": 2206,
+    "room_mib": 205
+  },
+  "watch": {
+    "level": "green",
+    "excess_points": 0,
+    "protecting": true,
+    "reason": "",
+    "next_victim": "",
+    "learning": 1
+  },
+  "holds": [
+    {
+      "name": "01794508102834073000-0000092749-000004-demo_short",
+      "label": "demo:short",
+      "pid": 92749,
+      "start_ns": 1794508102834073000,
+      "held_for_s": 2.067961,
+      "arrival_ns": 1794508102833079000,
+      "need_mib": 64,
+      "footprint_mib": 0,
+      "stops": 0,
+      "owner_exited": false,
+      "typical_s": 2,
+      "left_s": 0,
+      "stoppable": false
+    },
+    {
+      "name": "01794508102851040000-0000092760-000004-demo_long",
+      "label": "demo:long",
+      "pid": 92760,
+      "start_ns": 1794508102851040000,
+      "held_for_s": 2.050994,
+      "arrival_ns": 1794508102850048000,
+      "need_mib": 1681,
+      "footprint_mib": 0,
+      "stops": 0,
+      "owner_exited": false,
+      "typical_s": 9,
+      "left_s": 7,
+      "stoppable": true
+    }
+  ],
+  "tickets": [
+    {
+      "name": "01794508102858434000-0000092767-000001-demo_wait",
+      "id": "01794508102858434000-0000092767-000001",
+      "label": "demo:wait",
+      "pid": 92767,
+      "need_mib": 1024,
+      "created_ns": 1794508102858434000,
+      "waited_s": 2.0436,
+      "position": 1,
+      "state": "waiting",
+      "stalled": null,
+      "expected_wait_s": 7
+    },
+    {
+      "name": "01794508102866984000-0000092773-000001-demo_short",
+      "id": "01794508102866984000-0000092773-000001",
+      "label": "demo:short",
+      "pid": 92773,
+      "need_mib": 1024,
+      "created_ns": 1794508102866984000,
+      "waited_s": 2.03505,
+      "position": 2,
+      "state": "waiting",
+      "stalled": null,
+      "expected_wait_s": null
+    }
+  ],
+  "dead_holds": [],
+  "cancel_requests": [],
+  "ignored": {
+    "cancel": 0,
+    "holds": 0,
+    "queue": 0
+  },
+  "observed_s": 0
+}
