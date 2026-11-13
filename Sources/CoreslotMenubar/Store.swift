@@ -47,6 +47,7 @@ final class Store {
     /// Each label's colour, by order of first sight; a new label never repaints the others.
     private(set) var labelColors: [String: Int] = [:]
     /// Holds whose process the app could not read: no stop button, and the quiet line says so.
+    /// Only the popover shows it, so it is read only while the popover is visible.
     private(set) var unchecked: Set<String> = []
     /// Chosen in Settings: another `coreslot` than the one found.
     private(set) var chosenBinary: URL?
@@ -134,6 +135,7 @@ final class Store {
         #endif
         let interval = StatusSource.interval(visible: !visible.isEmpty)
         if on { refreshReport() }
+        if on, surface == .popover { checkHolds() }
         guard let source else { return }
         Task {
             await source.setInterval(interval)
@@ -230,7 +232,7 @@ final class Store {
         transitions.reading(r).forEach(Log.status.say)
         let doc = document
         holdLiveSince = doc?.holds.isEmpty == false ? holdLiveSince ?? at : nil
-        unchecked = Set((doc?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name))
+        if visible.contains(.popover) { checkHolds() }
         let dir = feed.stateDir ?? doc.flatMap { $0.stateDir.isEmpty ? nil : URL(filePath: $0.stateDir, directoryHint: .isDirectory) }
         let snapshot = await reader.update(stateDir: dir, doc: doc, at: at)
         if snapshot.newSamples > 0 { lastSample = at }
@@ -251,6 +253,8 @@ final class Store {
         }
         #endif
     }
+
+    private func checkHolds() { unchecked = Set((document?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name)) }
 
     /// `coreslot report --days 1 --json`, at most once a minute: coreslot does the counting.
     private func refreshReport() {

@@ -146,6 +146,7 @@ enum Present {
                     continue
                 }
                 let store = Store(feed: feed(variants.first { $0.name == name }!, fixtures: fixtures, live: false))
+                store.setVisible(.popover, true)
                 await store.readOnce()
                 show(PopoverView(store: store, openTimeline: {}).environment(\.revealsRowActions, true), kind: "popover", name: name, at: i)
             }
