@@ -64,7 +64,7 @@ private final class FakeInspector: ProcessInspector {
 }
 
 private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = ["coreslot", "run", "--", "sleep", "600"]) -> ProcessFacts {
-    ProcessFacts(executable: exe, startSeconds: startS, arguments: arguments)
+    ProcessFacts(executable: FileID(exe)!, startSeconds: startS, arguments: arguments)
 }
 
 @Suite struct StopTests {
@@ -88,9 +88,7 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         #expect(check == .changed)
     }
 
-    // Mutation: compare `facts.executable` and the binary by path; the symlink to the same file
-    // is refused in `everythingCheckedSendsSIGTERMToThatPid`, red. Mutation: drop the executable
-    // check; `/bin/ls` is ready, red.
+    // Mutation: drop the executable check; `/bin/ls` is ready, red.
     @Test func anotherExecutableIsRefused() async throws {
         let b = try Binary()
         let check = await prepareStop(
@@ -167,9 +165,9 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
     @Test func aHoldIsInspectableOnlyWhenItsProcessReads() throws {
         let hold = try #require(StatusDocument.decode(try status()).holds.first { $0.name == longName })
         let zero = try #require(StatusDocument.decode(try status { h in for i in h.indices { h[i]["pid"] = 0 } }).holds.first)
-        #expect(canInspect(hold, inspector: FakeInspector(facts(URL(filePath: "/x")))))
+        #expect(canInspect(hold, inspector: FakeInspector(facts(URL(filePath: "/bin/ls")))))
         #expect(!canInspect(hold, inspector: FakeInspector(nil)))
-        #expect(!canInspect(zero, inspector: FakeInspector(facts(URL(filePath: "/x")))))
+        #expect(!canInspect(zero, inspector: FakeInspector(facts(URL(filePath: "/bin/ls")))))
     }
 
     // Mutation: `recheck` returns `again` whatever it is; the other command line passes, red.
@@ -189,13 +187,20 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
     }
 
     // Mutation: build the command line without `SafeText.display`; U+202E and U+2028 are applied, red.
-    @Test func theCommandLineShowsHiddenCharactersEscaped() throws {
+    // Mutation: title the alert with the hold's label; the forger's word leads, red.
+    @Test func theAlertLeadsWithTheCommandLineShownEscaped() throws {
         let args = ["coreslot", "run", "--label", "build\u{202E}gpj.exe", "--", "make", "a\u{2028}b"]
-        let alert = AlertText.stop(try hold(), pid: longPID, facts: facts(URL(filePath: "/x"), arguments: args))
-        #expect(alert.message.contains(#"coreslot run --label build\u{202E}gpj.exe -- make a\u{2028}b"#))
+        let alert = AlertText.stop(try hold(), pid: longPID, facts: facts(URL(filePath: "/bin/ls"), arguments: args))
+        #expect(alert.message.hasPrefix(#"coreslot run --label build\u{202E}gpj.exe -- make a\u{2028}b"# + "\n\ncoreslot reports it as demo:long, at pid 92760."))
         #expect(!alert.message.unicodeScalars.contains { $0 == "\u{202E}" || $0 == "\u{2028}" })
         #expect(alert.message.contains("It is not restarted") && alert.message.contains("Commands waiting behind it start as memory frees"))
-        #expect(alert.title == "Stop demo:long?" && alert.confirm == "Stop")
+        #expect(alert.title == "Stop this command?" && alert.confirm == "Stop")
+    }
+
+    // Mutation: join the arguments unquoted; `["a b"]` reads as `["a", "b"]`, red.
+    @Test func argumentsThatHideTheirBoundariesAreQuoted() {
+        #expect(AlertText.commandLine(["a b"]) == #""a b""# && AlertText.commandLine(["a", "b"]) == "a b")
+        #expect(AlertText.commandLine(["sh", "-c", #"echo "it's""#, ""]) == #"sh -c "echo \"it's\"" """#)
     }
 
     // Mutation: cut at 2048; the whole line is shown, red.
@@ -205,10 +210,12 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         #expect(AlertText.commandLine(["a", "b"]) == "a b")
     }
 
+    // `.refused` is also what a `coreslot run` started before coreslot was upgraded gets: it runs
+    // the old file, not the app's.
     @Test func theRefusalSentences() {
         #expect(AlertText.refusal(.refused("x")) == "This process could not be confirmed as the command coreslot reports; nothing was sent.")
         #expect(AlertText.refusal(.gone) != nil && AlertText.refusal(.changed) != nil)
-        #expect(AlertText.refusal(.ready(pid: 2, facts: facts(URL(filePath: "/x")))) == nil)
+        #expect(AlertText.refusal(.ready(pid: 2, facts: facts(URL(filePath: "/bin/ls")))) == nil)
     }
 }
 
@@ -257,8 +264,52 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         defer { p.terminate(); p.waitUntilExit() }
         let f = try #require(DarwinProcessInspector().facts(p.processIdentifier))
         #expect(f.arguments == ["/bin/cat", "-", "a b", ""])
-        #expect(f.executable.path == "/bin/cat")
+        #expect(f.executable == FileID(URL(filePath: "/bin/cat")))
         #expect(abs(f.startSeconds - Int64(Date().timeIntervalSince1970)) <= 5)
+    }
+
+    // The S1 case: a process started from a path, that path then a link to another file. Mutation:
+    // take the executable as `proc_pidpath` names it and stat that; the link's target, red.
+    @Test(arguments: [false, true])
+    func theFileIsTheOneRunningNotTheOneAtItsPathNow(_ hardLink: Bool) throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "facts-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let (server, other, source) = (dir.appending(path: "server"), dir.appending(path: "other"), dir.appending(path: "server.c"))
+        // A sleeper of its own, which says when it has started: a copy of a system binary is killed
+        // as it starts, outside the system, and a path relinked while it starts kills it too.
+        try Data(#"#include <unistd.h>\#nint main(void) { write(1, "r", 1); sleep(30); return 0; }"#.utf8).write(to: source)
+        try Data("other".utf8).write(to: other)
+        let cc = Process()
+        (cc.executableURL, cc.arguments) = (URL(filePath: "/usr/bin/cc"), ["-o", server.path, source.path])
+        try cc.run()
+        cc.waitUntilExit()
+        let (p, out) = (Process(), Pipe())
+        (p.executableURL, p.standardOutput) = (server, out)
+        try p.run()
+        defer { p.terminate(); p.waitUntilExit() }
+        #expect(out.fileHandleForReading.readData(ofLength: 1) == Data("r".utf8))
+        let running = try #require(FileID(server))
+        try FileManager.default.removeItem(at: server)
+        try hardLink ? FileManager.default.linkItem(at: other, to: server) : FileManager.default.createSymbolicLink(at: server, withDestinationURL: other)
+        #expect(FileID(server) == FileID(other) && FileID(other) != running)
+        #expect(DarwinProcessInspector().facts(p.processIdentifier)?.executable == running)
+    }
+
+    // The S3 case. Mutation: skip every NUL after the exec path; the empty `argv[0]` is lost and the
+    // environment's first string reads as the last argument, red.
+    @Test func anEmptyFirstArgumentLeavesTheFactsUnread() async throws {
+        let p = Process()
+        (p.executableURL, p.arguments, p.environment) = (URL(filePath: "/usr/bin/perl"), ["-e", #"exec {"/bin/sleep"} "", "30""#], ["PROBE_SECRET": "x"])
+        try p.run()
+        defer { p.terminate(); p.waitUntilExit() }
+        var shown: [String] = []
+        // perl's own facts until it execs, then none.
+        for _ in 0..<100 {
+            guard let f = DarwinProcessInspector().facts(p.processIdentifier) else { break }
+            shown += f.arguments
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(DarwinProcessInspector().facts(p.processIdentifier) == nil && !shown.contains("PROBE_SECRET=x"))
     }
 
     @Test func noProcessHasNoFacts() {

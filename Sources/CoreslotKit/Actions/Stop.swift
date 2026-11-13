@@ -2,9 +2,11 @@ import Darwin
 import Foundation
 
 // The process checks before a stop. Adversary: an agent confined from signalling other processes
-// but able to write the state directory, which can forge a live hold naming any pid, with any
-// `start_ns`. Anchors: the executable at that pid (device and inode, from the kernel's path) and
-// its start time, which that agent cannot change for another process, and the process's own
+// but able to write the state directory, and perhaps the directory a victim was started from,
+// which can forge a live hold naming any pid, with any `start_ns`. Anchors: the file the process
+// at that pid runs, by the device and inode of its mapped executable, which no writer of the state
+// directory or of the victim's directory can change (a path can be relinked, the mapping cannot);
+// its start time, which that agent cannot change for another process; and the process's own
 // command line, shown to the person before anything is sent. `start_ns` is the state directory's
 // word, so the start check guards against a reused pid under an honest hold; against a forged
 // hold the executable and the command line are what count. On any doubt nothing is sent.
@@ -41,7 +43,8 @@ public func prepareStop(
     guard (2...Int64(Int32.max)).contains(hold.pid) else { return .refused("pid \(hold.pid) is out of range") }
     let pid = pid_t(hold.pid)
     guard let facts = inspector.facts(pid) else { return .refused("the process could not be read") }
-    guard let exe = FileID(facts.executable), exe == FileID(binary.url) else {
+    // A `coreslot run` started before coreslot was upgraded runs the old file: refused too.
+    guard facts.executable == FileID(binary.url) else {
         return .refused("the process runs another executable")
     }
     guard facts.startSeconds <= hold.startNS / 1_000_000_000 + startSlackS else {

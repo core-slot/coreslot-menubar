@@ -186,14 +186,16 @@ public struct JSONLTail: Sendable {
 }
 
 /// A file by device and inode: the tail's rotation check, and the stop's executable check.
-struct FileID: Equatable, Sendable {
+public struct FileID: Equatable, Sendable {
     let device: Int64
     let inode: UInt64
 
-    init(_ st: stat) { (device, inode) = (Int64(st.st_dev), UInt64(st.st_ino)) }
+    init(device: Int64, inode: UInt64) { (self.device, self.inode) = (device, inode) }
+
+    init(_ st: stat) { self.init(device: Int64(st.st_dev), inode: UInt64(st.st_ino)) }
 
     /// The file at `url`, symlinks followed; nil when there is none.
-    init?(_ url: URL) {
+    public init?(_ url: URL) {
         var st = stat()
         guard stat(url.path, &st) == 0 else { return nil }
         self.init(st)

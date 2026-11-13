@@ -279,7 +279,7 @@ enum Present {
         let alert = switch name {
         case "alert-stop":
             Confirm.make(AlertText.stop(hold, pid: pid_t(hold.pid), facts: ProcessFacts(
-                executable: URL(filePath: "/fixture/coreslot"), startSeconds: 0, arguments: args)))
+                executable: FixtureInspector.root, startSeconds: 0, arguments: args)))
         case "alert-cancel": Confirm.make(AlertText.cancel(ticket))
         default: Confirm.make(AlertText.refusal(.refused(""))!)
         }
@@ -485,13 +485,14 @@ enum Present {
     }
 }
 
-/// A fixture's pids are not this machine's: every hold reads as a process of `/fixture/coreslot`,
-/// which no check accepts, so nothing is ever signalled; or, unreadable, as none.
+/// A fixture's pids are not this machine's: every hold reads as a process running the root
+/// directory, which no check accepts, so nothing is ever signalled; or, unreadable, as none.
 private struct FixtureInspector: ProcessInspector {
+    static let root = FileID(URL(filePath: "/"))!
     let readable: Bool
 
     func facts(_ pid: pid_t) -> ProcessFacts? {
-        readable ? ProcessFacts(executable: URL(filePath: "/fixture/coreslot"), startSeconds: 0, arguments: ["coreslot"]) : nil
+        readable ? ProcessFacts(executable: Self.root, startSeconds: 0, arguments: ["coreslot"]) : nil
     }
 }
 

@@ -13,19 +13,23 @@ public enum AlertText {
     /// How much of a command line the stop confirmation shows.
     static let commandLimit = 512
 
-    /// The process's own arguments, each escaped, joined with spaces, cut at `commandLimit`.
+    /// The process's own arguments, each escaped, joined with spaces, cut at `commandLimit`. One
+    /// that is empty or holds whitespace or a quote is quoted, so where each ends stays visible.
     public static func commandLine(_ arguments: [String]) -> String {
-        let line = arguments.map(SafeText.display).joined(separator: " ")
+        let line = arguments.map(SafeText.display).map { a in
+            a.isEmpty || a.contains { $0.isWhitespace || $0 == "\"" || $0 == "'" }
+                ? "\"" + a.replacingOccurrences(of: "\"", with: #"\""#) + "\"" : a
+        }.joined(separator: " ")
         return line.count > commandLimit ? String(line.prefix(commandLimit)) + "…" : line
     }
 
     public static func stop(_ hold: StatusDocument.Hold, pid: pid_t, facts: ProcessFacts) -> Alert {
         Alert(
-            title: "Stop \(SafeText.display(hold.label))?",
+            title: "Stop this command?",
             message: """
-                The process at pid \(pid) runs:
                 \(commandLine(facts.arguments))
 
+                coreslot reports it as \(SafeText.display(hold.label)), at pid \(pid). \
                 It has run for \(Formatting.duration(hold.heldForS)). It is not restarted: \
                 it ends as failed, and whoever started it decides what next. \
                 Commands waiting behind it start as memory frees.
