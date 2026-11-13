@@ -18,7 +18,42 @@ public enum StopCheck: Sendable, Equatable {
     /// The hold is live but no longer stoppable.
     case changed
     /// The process could not be confirmed as the hold's; the reason is for the record, not shown.
-    case refused(String)
+    /// `started`: the start time of the facts read, when they were.
+    case refused(String, started: Int64? = nil)
+
+    /// The start time of the process this check read, when it read one.
+    public var started: Int64? {
+        switch self { case .ready(_, let f): f.startSeconds; case .refused(_, let s): s; case .gone, .changed: nil }
+    }
+}
+
+/// How a stop ended; each carries the check that ended it.
+public enum StopEnd: Sendable, Equatable {
+    /// The first check did not pass: nothing was asked.
+    case notAsked(StopCheck)
+    /// The person was shown the `.ready` check and said no.
+    case declined(StopCheck)
+    /// Confirmed, but the check after it did not stand: nothing sent. `differs`: it read a process
+    /// other than the one shown, whose `.ready` check this is.
+    case notSent(StopCheck, differs: Bool)
+    /// Confirmed and checked again; `SIGTERM` sent, or not, by the facts read right before it.
+    case signalled(StopOutcome, StopCheck)
+}
+
+/// The order of a stop: check, ask about the process checked, check again, and only for the same
+/// pid with the same facts as were shown, `sendStop`, which reads the facts once more. `ask` shows
+/// the pid and facts and says whether the person confirmed.
+public func stop(
+    holdName: String, using binary: CoreslotBinary, runner: Runner, inspector: any ProcessInspector,
+    ask: @Sendable (pid_t, ProcessFacts) async -> Bool, signal: (pid_t, Int32) -> Int32
+) async -> StopEnd {
+    let shown = await prepareStop(holdName: holdName, using: binary, runner: runner, inspector: inspector)
+    guard case .ready(let pid, let facts) = shown else { return .notAsked(shown) }
+    guard await ask(pid, facts) else { return .declined(shown) }
+    let checked = await prepareStop(holdName: holdName, using: binary, runner: runner, inspector: inspector)
+    let again = recheck(checked, shown: shown)
+    guard case .ready = again else { return .notSent(checked, differs: again != checked) }
+    return .signalled(sendStop(again, inspector: inspector, signal: signal), again)
 }
 
 public enum StopOutcome: Sendable, Equatable {
@@ -44,10 +79,10 @@ public func prepareStop(
     guard let facts = inspector.facts(pid) else { return .refused("the process could not be read") }
     // A `coreslot run` started before coreslot was upgraded runs the old file: refused too.
     guard facts.executable == FileID(binary.url) else {
-        return .refused("the process runs another executable")
+        return .refused("the process runs another executable", started: facts.startSeconds)
     }
     guard facts.startSeconds <= hold.startNS / 1_000_000_000 + startSlackS else {
-        return .refused("the process started after its hold")
+        return .refused("the process started after its hold", started: facts.startSeconds)
     }
     return .ready(pid: pid, facts: facts)
 }
