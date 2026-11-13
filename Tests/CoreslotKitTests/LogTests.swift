@@ -6,17 +6,20 @@ import Testing
     /// Each call's lines, as `text`, or `!text` for a failure.
     private func said(_ lines: [LogLine]) -> [String] { lines.map { ($0.failure ? "!" : "") + $0.text } }
 
-    // Mutation: drop `now == kind ? [] :` (a line every poll); red. Mutation: `failure: false`; red.
+    // Mutation: drop `now == kind ? [] :` (a line every poll); red. Mutation: `let failure = false`; red.
+    // Mutation: word a problem as `"problem: \(p)"`, not `Words.problem` (-errno as an exit); red.
+    // Mutation: `.notices` worded `"notices only (schema 2)"`, the notices said twice; red.
     @Test func theKindIsLoggedWhenItChangesAndOnceWhenItRecovers() throws {
         let doc = try StatusDocument.decode(Fixture.data("status-queue.json"))
         var t = LogTransitions()
-        let readings: [StatusReading] = [.document(doc, []), .document(doc, []), .problem(.failed(exitCode: 64)),
-                                         .problem(.failed(exitCode: 64)), .problem(.stateUnreadable), .notices([.schema(2)]), .document(doc, [])]
+        let (exit64, errno24) = ("problem: coreslot status failed with exit status 64", "problem: coreslot status could not be run (system error 24)")
+        let readings: [StatusReading] = [.document(doc, []), .document(doc, []), .problem(.failed(exitCode: 64)), .problem(.failed(exitCode: 64)),
+                                         .problem(.failed(exitCode: -24)), .problem(.stateUnreadable), .notices([.schema(2)]), .document(doc, [])]
         #expect(readings.map { said(t.reading($0)) } == [
-            ["status: document"], [], ["!status: document -> problem: exit 64"], [],
-            ["!status: problem: exit 64 -> problem: state unreadable, exit 3"],
-            ["status: problem: state unreadable, exit 3 -> notices only (schema 2)", "notice: schema 2"],
-            ["status: notices only (schema 2) -> document", "notice cleared: schema 2"],
+            ["status: document"], [], ["!status: document -> \(exit64)"], [], ["!status: \(exit64) -> \(errno24)"],
+            ["!status: \(errno24) -> problem: coreslot cannot read its state"],
+            ["status: problem: coreslot cannot read its state -> notices only", "notice: schema 2"],
+            ["status: notices only -> document", "notice cleared: schema 2"],
         ])
     }
 
@@ -27,8 +30,9 @@ import Testing
         var t = LogTransitions()
         _ = t.reading(.document(doc, []))
         #expect(said(t.reading(.document(doc, [.degraded("a\u{202E}b"), .tooOld]))) == [#"notice: degraded: a\u{202E}b"#, "notice: coreslot older than 0.8.0"])
-        #expect(said(t.reading(.problem(.timedOut))) == ["!status: document -> problem: timed out"])
-        #expect(said(t.reading(.document(doc, [.tooOld]))) == ["status: problem: timed out -> document", #"notice cleared: degraded: a\u{202E}b"#])
+        let late = "problem: coreslot status did not answer in time"
+        #expect(said(t.reading(.problem(.timedOut))) == ["!status: document -> \(late)"])
+        #expect(said(t.reading(.document(doc, [.tooOld]))) == ["status: \(late) -> document", #"notice cleared: degraded: a\u{202E}b"#])
     }
 
     // Mutation: drop `guard b != binary` (a line every look); red. Mutation: "found" for a change; red.

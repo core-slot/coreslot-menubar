@@ -10,20 +10,35 @@ public struct LogLine: Equatable, Sendable {
 
 /// What changed since the last time, as log lines: every poll is seen here, only changes come out.
 public struct LogTransitions: Sendable {
-    private var kind: String?
+    private var kind: Kind?
     private var notices: [String] = []
     private var binary: CoreslotBinary?
-    /// The read errors last logged; a restart clears them, since the record it reads may be another.
-    public var readErrors: [String] = []
+    private var readErrors: [String] = []
 
     public init() {}
+
+    /// What a reading is, without its document: the log says when it changes.
+    public enum Kind: Equatable, Sendable {
+        case document, notices, problem(Problem)
+        public init(_ r: StatusReading) {
+            self = switch r { case .document: .document; case .notices: .notices; case .problem(let p): .problem(p) }
+        }
+
+        public var text: String {
+            switch self { case .document: "document"; case .notices: "notices only"; case .problem(let p): "problem: " + Words.problem(p).state }
+        }
+    }
+
+    /// A restart reads the record anew: the errors seen so far were of the record before.
+    public mutating func restarted() { readErrors = [] }
 
     /// The reading's kind when it changes; notices as they appear or clear. A problem says nothing
     /// of notices, so they stand until the next reading that has them.
     public mutating func reading(_ r: StatusReading) -> [LogLine] {
-        let now = Self.kind(r)
+        let now = Kind(r)
         defer { kind = now }
-        let change = now == kind ? [] : [LogLine(text: "status: \(kind.map { "\($0) -> " } ?? "")\(now)", failure: now.hasPrefix("problem"))]
+        let failure = if case .problem = now { true } else { false }
+        let change = now == kind ? [] : [LogLine(text: "status: \(kind.map { "\($0.text) -> " } ?? "")\(now.text)", failure: failure)]
         let shown: [Notice]? = switch r {
         case .document(_, let n), .notices(let n): n
         case .problem: nil
@@ -50,18 +65,6 @@ public struct LogTransitions: Sendable {
         defer { old = new }
         return new.filter { !old.contains($0) }.map { LogLine(text: "\(added) \($0)", failure: failure) }
             + old.filter { !new.contains($0) }.map { LogLine(text: "\(dropped) \($0)", failure: false) }
-    }
-
-    public static func kind(_ r: StatusReading) -> String {
-        switch r {
-        case .document: "document"
-        case .notices(let n): "notices only (\(n.map(text).joined(separator: ", ")))"
-        case .problem(.notFound): "problem: coreslot not found"
-        case .problem(.stateUnreadable): "problem: state unreadable, exit 3"
-        case .problem(.failed(let code)): "problem: exit \(code)"
-        case .problem(.malformed): "problem: output not understood"
-        case .problem(.timedOut): "problem: timed out"
-        }
     }
 
     static func text(_ n: Notice) -> String {

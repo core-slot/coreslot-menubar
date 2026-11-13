@@ -52,20 +52,25 @@ log show --predicate 'subsystem == "io.github.core-slot.menubar"' --last 1d --st
 
 It logs changes, never every poll, in four categories:
 
-- `status`: the coreslot found, a new one or none, with its path and version; each change in what
-  `coreslot status --json` gave (a document, notices only, or a problem with its exit code); and
-  each notice as it appears and clears (degraded and its reason, format not understood, config
-  error, an older coreslot, another schema).
-- `actions`: each cancel and stop asked, declined or sent, with the ticket or the hold, its pid and
-  start time, each refusal and its reason, the signal sent and the result or errno.
-- `telemetry`: an error reading the telemetry or the run log, once while it lasts and once when it
-  ends.
-- `settings`: the coreslot and the state directory chosen, and launch at login asked, with the
-  status the system then reports.
+- `status`: the coreslot found, changed or lost, with its path, and its version when found; each
+  change in what `coreslot status --json` gave: a document, notices only, or a problem in the
+  popover's words, with the exit status where there is one; and each notice as it appears and as it
+  clears (degraded and its reason, format not understood, config error, an older coreslot, another
+  schema).
+- `actions`: each cancel asked, not asked (no coreslot, or another action in flight), declined,
+  requested, refused (with what `status` then gave) or failed, with the ticket. Each stop asked,
+  not asked, declined, not sent and why, or `SIGTERM` sent or failed with its errno, with the hold's
+  pid, the process's start time once the first check has passed (`unknown` before), and the hold.
+- `telemetry`: an error reading the telemetry or the run log, by stream (`samples`, `events`,
+  `runs`) and errno, once while it lasts and once when it ends.
+- `settings`: the coreslot and the state directory chosen, by path, and launch at login turned on
+  or off, with the status the system then reports and its error, if any.
 
-Failures are logged as errors, everything else as notices. A process's arguments are never logged;
-text from the state directory, such as names and reasons, is logged with its control and invisible
-characters escaped. For coreslot's own side, run `coreslot doctor`.
+Failures are logged as errors, everything else as notices. A process's arguments are never logged.
+Text from the state directory, such as hold and ticket names (which carry part of a label) and
+reasons, is logged with its control and invisible characters escaped, after the app's own facts, so
+the system's cut of a long line takes the name, not the facts. For coreslot's own side, run
+`coreslot doctor`.
 
 ## License
 

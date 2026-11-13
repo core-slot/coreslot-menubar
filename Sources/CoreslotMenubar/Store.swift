@@ -113,7 +113,8 @@ final class Store {
         generation += 1
         loop?.cancel()
         (loop, source, binary, report, reportAt, reportTask) = (nil, nil, nil, nil, nil, nil)
-        (lastSample, holdLiveSince, transitions.readErrors) = (nil, nil, [])
+        (lastSample, holdLiveSince) = (nil, nil)
+        transitions.restarted()
         start()
     }
 
@@ -149,9 +150,9 @@ final class Store {
 
     /// Asks before withdrawing a waiting request, then runs `coreslot cancel`.
     func askToCancel(_ ticket: StatusDocument.Ticket) {
-        guard let binary, !acting else { return }
-        acting = true
         let id = SafeText.display(ticket.id)
+        guard let binary, !acting else { return Log.actions.say("cancel not asked, \(acting ? "another action is in flight" : "no coreslot"): ticket \(id)") }
+        acting = true
         Log.actions.say("cancel asked: ticket \(id)")
         Task {
             defer { acting = false }
@@ -161,11 +162,11 @@ final class Store {
                 Log.actions.say("cancel requested: ticket \(id)")
                 cancelRequested.insert(ticket.id)
             case .refused(let now):
-                Log.actions.say("cancel refused, exit 75: ticket \(id); status now \(LogTransitions.kind(now))")
+                Log.actions.say("cancel refused, exit 75; status now \(LogTransitions.Kind(now).text): ticket \(id)")
                 await ingest(now)
                 Confirm.tell(AlertText.cancelRefused(ticketID: ticket.id, now: now))
             case .failed(let problem):
-                Log.actions.say("cancel failed, \(LogTransitions.kind(.problem(problem))): ticket \(id)", failure: true)
+                Log.actions.say("cancel failed: \(AlertText.cancelFailed(problem)) Ticket \(id)", failure: true)
                 Confirm.tell(AlertText.cancelFailed(problem))
             }
         }
@@ -173,37 +174,33 @@ final class Store {
 
     /// Checks the hold's process, asks, checks again, and only then sends `SIGTERM`.
     func askToStop(_ hold: StatusDocument.Hold) {
-        guard let binary, !acting else { return }
-        acting = true
         let (runner, inspector, name) = (runner, feed.inspector, SafeText.display(hold.name))
-        Log.actions.say("stop asked: pid \(hold.pid), hold \(name)")
+        let who = "pid \(hold.pid), started unknown, hold \(name)"
+        guard let binary, !acting else { return Log.actions.say("stop not asked, \(acting ? "another action is in flight" : "no coreslot"): \(who)") }
+        acting = true
+        Log.actions.say("stop asked: \(who)")
         Task {
             defer { acting = false }
             let shown = await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector)
-            guard case .ready(let pid, let facts) = shown else { return tell(stop: shown, name) }
-            guard Confirm.ask(AlertText.stop(hold, pid: pid, facts: facts)) else { return Log.actions.say("stop declined: pid \(pid), hold \(name)") }
+            guard case .ready(let pid, let facts) = shown else { return tell(stop: shown, who) }
+            let known = "pid \(pid), started \(facts.startSeconds), hold \(name)"
+            guard Confirm.ask(AlertText.stop(hold, pid: pid, facts: facts)) else { return Log.actions.say("stop declined: \(known)") }
             let checked = await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector)
             let again = recheck(checked, shown: shown)
-            guard case .ready = again else { return tell(stop: again, name, differs: again != checked) }
+            guard case .ready = again else { return tell(stop: again, known, differs: again != checked) }
             let outcome = sendStop(again, inspector: inspector, signal: feed.signal)
             let words = switch outcome { case .sent: "sent"; case .changed: "not sent, the process changed"; case .failed(let e): "failed, errno \(e)" }
-            Log.actions.say("stop \(words): SIGTERM to pid \(pid), started \(facts.startSeconds), hold \(name)", failure: outcome != .sent)
-            #if DEBUG
-            Present.log("stop \(outcome)")
-            #endif
+            Log.actions.say("stop \(words): SIGTERM to \(known)", failure: outcome != .sent)
             if let words = AlertText.stopOutcome(outcome) { Confirm.tell(words) }
             await source?.readNow()
         }
     }
 
-    /// Never `.ready`, whose facts hold the arguments; `differs`: not the process the person confirmed.
-    private func tell(stop c: StopCheck, _ name: String, differs: Bool = false) {
+    /// Never `.ready` (its facts hold the arguments); `who`: our facts, then the name; `differs`: not the one confirmed.
+    private func tell(stop c: StopCheck, _ who: String, differs: Bool = false) {
         var why = switch c { case .gone: "the hold is gone"; case .changed: "the hold is no longer stoppable"; case .refused(let r): r; case .ready: "" }
         if differs { why = "the process differs from the one confirmed" }
-        Log.actions.say("stop not sent, \(why): hold \(name)", failure: differs || (c != .gone && c != .changed))
-        #if DEBUG
-        Present.log("stop \(c)")
-        #endif
+        Log.actions.say("stop not sent, \(why): \(who)", failure: differs || (c != .gone && c != .changed))
         if let words = AlertText.refusal(c) { Confirm.tell(words) }
     }
 
