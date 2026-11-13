@@ -53,19 +53,17 @@ public struct Series: Sendable {
         let footprintMiB: [String: Int64]
     }
 
+    /// A longer stretch without a sample, which comes every 2 s, is a gap.
+    static let maxSilenceNS: Int64 = 6_000_000_000
+
     public let range: Range
-    private let maxSilenceNS: Int64
     private var kept: [Int64: Reading] = [:]
     private var failed: Set<Int64> = []
     private var silences: [ClosedRange<Int64>] = []
     private var first: Int64?
     private var last: Int64?
 
-    /// `maxSilenceS`: a longer stretch without a reading is a gap; 6 s for samples, which come
-    /// every 2 s, and more for the app's own polls, which come every 10 s while it is closed.
-    public init(range: Range, maxSilenceS: Int64 = 6) {
-        (self.range, self.maxSilenceNS) = (range, maxSilenceS * 1_000_000_000)
-    }
+    public init(range: Range) { self.range = range }
 
     public mutating func add(_ s: SampleLine) {
         add(Reading(
@@ -73,25 +71,20 @@ public struct Series: Sendable {
             roomMiB: s.roomMiB, footprintMiB: Dictionary(s.jobs.map { ($0.label, $0.footprintMiB) }, uniquingKeysWith: +)))
     }
 
-    /// One of the app's own `status` readings, for the series kept while the record looks off.
-    public mutating func add(_ doc: StatusDocument, at date: Date) {
-        let t = Int64(date.timeIntervalSince1970 * 1e9)
-        let footprints = Dictionary(doc.holds.map { ($0.label, $0.footprintMiB) }, uniquingKeysWith: +)
-        guard let m = doc.mem, let h = m.headroomMiB, let r = m.reserveMiB, let room = m.roomMiB else {
-            add(Reading(timeNS: t, ok: false, headroomMiB: 0, reserveMiB: 0, roomMiB: 0, footprintMiB: [:]))
-            return
-        }
-        add(Reading(timeNS: t, ok: true, headroomMiB: h, reserveMiB: r, roomMiB: room, footprintMiB: footprints))
-    }
-
-    /// A reading not later than the last one is ignored: coreslot writes samples in time order.
+    /// `time_ns` can step: a reading earlier than the last is a clock step back, so what was kept
+    /// after it goes and the series goes on from it. A line dated ahead is undone by the next one.
     mutating func add(_ r: Reading) {
-        if let last, r.timeNS <= last { return }
-        if let last, r.timeNS - last > maxSilenceNS { silences.append(last...r.timeNS) }
-        if first == nil { first = r.timeNS }
-        let crossed = last.map { index($0) != index(r.timeNS) } ?? false
-        last = r.timeNS
         let i = index(r.timeNS)
+        if let last, r.timeNS < last {
+            kept = kept.filter { $0.value.timeNS <= r.timeNS }
+            failed = failed.filter { $0 <= i }
+            silences.removeAll { $0.upperBound > r.timeNS }
+        } else if let last, r.timeNS - last > Self.maxSilenceNS {
+            silences.append(last...r.timeNS)
+        }
+        first = min(first ?? r.timeNS, r.timeNS)
+        let crossed = last.map { index($0) != i } ?? false
+        last = r.timeNS
         if !r.ok {
             failed.insert(i)
         } else if kept[i].map({ r.headroomMiB < $0.headroomMiB }) ?? true {
@@ -101,15 +94,15 @@ public struct Series: Sendable {
     }
 
     /// The range's buckets up to `now`, oldest first. A bucket with no reading inside a silence of
-    /// at most `maxSilenceS` is left out, and the chart joins its neighbours.
+    /// at most `maxSilenceNS` is left out, and the chart joins its neighbours.
     public func buckets(machineMiB: Int64, now: Date) -> [Bucket] {
         let res = range.resolutionS * 1_000_000_000
         let nowNS = Int64(now.timeIntervalSince1970 * 1e9)
         let startNS = nowNS - range.spanS * 1_000_000_000
         var unrecorded = silences
         if let first, let last {
-            if first - startNS > maxSilenceNS { unrecorded.append(startNS...first) }
-            if nowNS - last > maxSilenceNS { unrecorded.append(last...nowNS) }
+            if first - startNS > Self.maxSilenceNS { unrecorded.append(startNS...first) }
+            if nowNS - last > Self.maxSilenceNS { unrecorded.append(last...nowNS) }
         } else {
             unrecorded.append(startNS...nowNS)
         }

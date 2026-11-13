@@ -38,16 +38,6 @@ import Testing
             outsideMiB: Self.machine - 4200 - 500, reservedMiB: Self.machine - 262 - 2994))
     }
 
-    // Mutation: compute the reserved line as `machine − room`; red.
-    @Test func theReservedLineIsMachineLessReserveLessRoomOfTheKeptSample() throws {
-        var series = Series(range: .quarterHour)
-        series.add(sample(0, headroom: 6000, reserve: 1024, room: 2500, [("a", 1000)]))
-        series.add(sample(1, headroom: 7000, reserve: 512, room: 4000))
-        let got = try #require(bucket(series.buckets(machineMiB: Self.machine, now: at(2)), 0)?.point)
-        #expect(got.reservedMiB == Self.machine - 1024 - 2500)
-        #expect(got.inUseMiB == Self.machine - 6000 && got.outsideMiB == Self.machine - 6000 - 1000)
-    }
-
     // Mutation: keep a failed sample like any other; its headroom of 0 is the most memory in use,
     // and the bucket draws the whole machine as used, red.
     @Test func aFailedReadingIsAGapNotAZero() throws {
@@ -61,6 +51,7 @@ import Testing
 
     // Mutation: record no silence; the buckets of the 20 minutes are left out instead of being
     // gaps, red.
+    // Mutation: drop the unrecorded range before the first sample; bucket −10 is left out, red.
     @Test func aTwentyMinuteSilenceIsAGap() {
         var series = Series(range: .hour)
         for s in stride(from: Int64(0), through: 60, by: 2) { series.add(sample(s)) }
@@ -70,18 +61,25 @@ import Testing
             #expect(bucket(b, s).map { $0.point == nil } == true, "bucket at +\(s) s")
         }
         #expect(bucket(b, 60)?.point != nil && bucket(b, 1260)?.point != nil)
-        #expect(bucket(b, -10)?.point == nil, "nothing was recorded before the first sample")
+        #expect(bucket(b, -10).map { $0.point == nil } == true, "nothing was recorded before the first sample")
     }
 
-    // Mutation: drop the check of a time not later than the last; the 2 s sample, with the most
-    // memory in use, becomes the point of bucket 0, red.
-    @Test func aSampleNotLaterThanTheLastIsIgnored() throws {
-        var series = Series(range: .hour)
-        for (s, headroom) in [(0, 5000), (4, 5000), (2, 1000), (4, 1000)] as [(Int64, Int64)] {
-            series.add(sample(s, headroom: headroom))
+    // Mutation: ignore a sample earlier than the last (the rule before this one); nothing after
+    // the step is kept, red.
+    // Mutation: keep what came after a step back; the point at +100 s stays, red.
+    @Test func aStepBackDropsWhatCameAfterItAndGoesOn() throws {
+        var step = Series(range: .hour), ahead = Series(range: .hour)
+        for (s, headroom) in [(0, 5000), (100, 1000), (20, 4000), (30, 3000)] as [(Int64, Int64)] {
+            step.add(sample(s, headroom: headroom))
         }
-        let got = try #require(bucket(series.buckets(machineMiB: Self.machine, now: at(10)), 0)?.point)
-        #expect(got.inUseMiB == Self.machine - 5000)
+        let b = step.buckets(machineMiB: Self.machine, now: at(110))
+        #expect([0, 20, 30, 100].map { bucket(b, $0)?.point?.inUseMiB } == [5000, 4000, 3000].map { Self.machine - $0 } + [nil])
+        // A line dated a day ahead is undone by the next sample, which is kept.
+        for (s, headroom) in [(0, 5000), (86_400, 1000), (20, 4000), (30, 3000)] as [(Int64, Int64)] {
+            ahead.add(sample(s, headroom: headroom))
+        }
+        let a = ahead.buckets(machineMiB: Self.machine, now: at(40))
+        #expect([20, 30].map { bucket(a, $0)?.point?.inUseMiB } == [4000, 3000].map { Self.machine - $0 })
     }
 
     // Each mutation crashes the run with an overflow trap, red:
