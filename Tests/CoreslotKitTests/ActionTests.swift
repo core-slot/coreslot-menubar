@@ -76,7 +76,7 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         let check = await prepareStop(holdName: longName, using: b.binary, runner: statusRunner(data), inspector: inspector)
         #expect(check == .gone)
         var sent: [pid_t] = []
-        #expect(sendStop(check, inspector: inspector, signal: { pid, _ in sent.append(pid); return 0 }) == .changed)
+        #expect(sendStop(check, inspector: inspector, signal: { pid, _ in sent.append(pid); return 0 }) == .changed(started: nil))
         #expect(sent.isEmpty && inspector.asked.withLock { $0.isEmpty })
     }
 
@@ -89,13 +89,15 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
     }
 
     // Mutation: drop the executable check; `/bin/ls` is ready, red. Mutation: refuse without the
-    // start time read (`started:` dropped); the log would say `started unknown`, red.
+    // start time read (`started:` dropped); the log would say `started unknown`, red. Mutation (M3):
+    // refuse without the pid read (`pid:` dropped); the log would pair the row's pid with it, red.
     @Test func anotherExecutableIsRefused() async throws {
         let b = try Binary()
         let check = await prepareStop(
             holdName: longName, using: b.binary, runner: statusRunner(try status()),
             inspector: FakeInspector(facts(URL(filePath: "/bin/ls"))))
-        #expect(check == .refused("the process runs another executable", started: admittedS) && check.started == admittedS)
+        #expect(check == .refused("the process runs another executable", pid: longPID, started: admittedS))
+        #expect(check.read.pid == longPID && check.read.started == admittedS)
     }
 
     // Mutation: drop the start-time check; the process that started 60 s after its hold (a reused
@@ -110,15 +112,15 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         let check = await prepareStop(
             holdName: longName, using: b.binary, runner: statusRunner(try status()),
             inspector: FakeInspector(facts(b.binary.url, startS: startS)))
-        #expect(check == (ready ? .ready(pid: longPID, facts: facts(b.binary.url, startS: startS)) : .refused("the process started after its hold", started: startS)))
-        #expect(check.started == startS)
+        #expect(check == (ready ? .ready(pid: longPID, facts: facts(b.binary.url, startS: startS)) : .refused("the process started after its hold", pid: longPID, started: startS)))
+        #expect(check.read.started == startS)
     }
 
     // Mutation: treat unreadable facts as a pass (`?? facts(...)`); red.
     @Test func unreadableFactsAreRefused() async throws {
         let b = try Binary()
         let check = await prepareStop(holdName: longName, using: b.binary, runner: statusRunner(try status()), inspector: FakeInspector(nil))
-        #expect(check == .refused("the process could not be read") && check.started == nil)
+        #expect(check == .refused("the process could not be read", pid: longPID) && check.read.pid == longPID && check.read.started == nil)
     }
 
     // Mutation: widen the range to `0...`; pid 0 and 1 reach the inspector, which says yes, red.
@@ -141,14 +143,15 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
     }
 
     // Mutation: drop the re-read in `sendStop`; the pid that now runs another program gets
-    // SIGTERM, red.
+    // SIGTERM, red. Mutation (M3): `.changed(started: facts.startSeconds)`, the check's start time,
+    // not the one read right before the signal; red.
     @Test func factsThatChangeBeforeTheSignalSendNothing() async throws {
         let b = try Binary()
         let inspector = FakeInspector(facts(b.link), facts(URL(filePath: "/bin/ls"), startS: admittedS + 30))
         let check = await prepareStop(holdName: longName, using: b.binary, runner: statusRunner(try status()), inspector: inspector)
         guard case .ready = check else { Issue.record("\(check)"); return }
         var sent: [pid_t] = []
-        #expect(sendStop(check, inspector: inspector, signal: { pid, _ in sent.append(pid); return 0 }) == .changed)
+        #expect(sendStop(check, inspector: inspector, signal: { pid, _ in sent.append(pid); return 0 }) == .changed(started: admittedS + 30))
         #expect(sent.isEmpty)
     }
 
@@ -174,12 +177,14 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
     }
 
     // Mutation: `recheck` returns `again` whatever it is; the other command line passes, red.
+    // Mutation: `.differs` with the pid shown; the moved pid is not the one in the line, red.
     @Test func aRecheckStandsOnlyForTheCommandLineShown() throws {
         let b = try Binary()
         let shown = StopCheck.ready(pid: longPID, facts: facts(b.link))
         #expect(recheck(shown, shown: shown) == shown)
-        #expect(recheck(.ready(pid: longPID, facts: facts(b.link, arguments: ["coreslot", "run", "--", "other"])), shown: shown) == .changed)
-        #expect(recheck(.ready(pid: longPID + 1, facts: facts(b.link)), shown: shown) == .changed)
+        let other = facts(b.link, arguments: ["coreslot", "run", "--", "other"])
+        #expect(recheck(.ready(pid: longPID, facts: other), shown: shown) == .differs(pid: longPID, facts: other))
+        #expect(recheck(.ready(pid: longPID + 1, facts: facts(b.link)), shown: shown) == .differs(pid: longPID + 1, facts: facts(b.link)))
         #expect(recheck(.gone, shown: shown) == .gone)
     }
 }
@@ -233,12 +238,13 @@ private final class Click: Sendable {
         let other = facts(b.link, arguments: ["coreslot", "run", "--", "rm", "-rf", "/tmp/x"])
         let click = Click(true)
         let end = await click.stop(b, FakeRunner { _ in RunResult(exitCode: 0, stdout: try! status()) }, FakeInspector(facts(b.link), other))
-        #expect(end == .notSent(.ready(pid: longPID, facts: other), differs: true))
+        #expect(end == .notSent(.differs(pid: longPID, facts: other)))
         #expect(click.nothingSent)
     }
 
     // The R5 mutation `recheck → checked` again: the hold now names another pid, which gets
-    // SIGTERM, red.
+    // SIGTERM, red. Mutation (M3): `recheck` returns `.changed` for it, as before; the end carries
+    // neither the pid nor the start time the second check read, and the line took the row's pid, red.
     @Test func aPidThatChangesBetweenTheChecksGetsNothing() async throws {
         let b = try Binary()
         let moved = try status { h in for i in h.indices where h[i]["name"] as? String == longName { h[i]["pid"] = Int64(longPID) + 1 } }
@@ -246,8 +252,9 @@ private final class Click: Sendable {
         let runner = FakeRunner { _ in RunResult(exitCode: 0, stdout: runs.withLock { $0 += 1; return $0 } == 1 ? try! status() : moved) }
         let click = Click(true)
         let end = await click.stop(b, runner, FakeInspector(facts(b.link)))
-        #expect(end == .notSent(.ready(pid: longPID + 1, facts: facts(b.link)), differs: true))
-        #expect(click.nothingSent)
+        #expect(end == .notSent(.differs(pid: longPID + 1, facts: facts(b.link))))
+        guard case .notSent(let c) = end else { return }
+        #expect(c.read.pid == longPID + 1 && c.read.started == admittedS && click.nothingSent)
     }
 
     // N3: refused at the second check, the end carries that check, with its start time, never the
@@ -257,9 +264,9 @@ private final class Click: Sendable {
         let click = Click(true)
         let end = await click.stop(b, FakeRunner { _ in RunResult(exitCode: 0, stdout: try! status()) },
                                    FakeInspector(facts(b.link), facts(b.link, startS: admittedS + 60)))
-        #expect(end == .notSent(.refused("the process started after its hold", started: admittedS + 60), differs: false))
-        guard case .notSent(let c, _) = end else { return }
-        #expect(c.started == admittedS + 60 && click.nothingSent)
+        #expect(end == .notSent(.refused("the process started after its hold", pid: longPID, started: admittedS + 60)))
+        guard case .notSent(let c) = end else { return }
+        #expect(c.read.started == admittedS + 60 && click.nothingSent)
     }
 
     // N1: refused at the first check, nothing is asked and the end carries the start time read.
@@ -268,18 +275,19 @@ private final class Click: Sendable {
         let b = try Binary()
         let click = Click(true)
         let end = await click.stop(b, FakeRunner { _ in RunResult(exitCode: 0, stdout: try! status()) }, FakeInspector(facts(URL(filePath: "/bin/ls"))))
-        #expect(end == .notAsked(.refused("the process runs another executable", started: admittedS)))
+        #expect(end == .notAsked(.refused("the process runs another executable", pid: longPID, started: admittedS)))
         #expect(click.asked.withLock { $0.isEmpty } && click.nothingSent)
     }
 
     // Mutation: signal the re-checked pid without `sendStop`'s last read of the facts; the process
-    // that changed after the second check gets SIGTERM, red.
+    // that changed after the second check gets SIGTERM, red. The end carries the start time of
+    // that last read (M3), not the second check's.
     @Test func factsThatChangeAfterTheSecondCheckSendNothing() async throws {
         let b = try Binary()
         let click = Click(true)
         let end = await click.stop(b, FakeRunner { _ in RunResult(exitCode: 0, stdout: try! status()) },
-                                   FakeInspector(facts(b.link), facts(b.link), facts(URL(filePath: "/bin/ls"))))
-        #expect(end == .signalled(.changed, .ready(pid: longPID, facts: facts(b.link))))
+                                   FakeInspector(facts(b.link), facts(b.link), facts(URL(filePath: "/bin/ls"), startS: admittedS + 30)))
+        #expect(end == .signalled(.changed(started: admittedS + 30), .ready(pid: longPID, facts: facts(b.link))))
         #expect(click.nothingSent)
     }
 }
@@ -317,6 +325,8 @@ private final class Click: Sendable {
     @Test func theRefusalSentences() {
         #expect(AlertText.refusal(.refused("x")) == "This process could not be confirmed as the command coreslot reports; nothing was sent.")
         #expect(AlertText.refusal(.gone) != nil && AlertText.refusal(.changed) != nil)
+        // Mutation: give `.differs` the `.refused` sentence; the alert would change, red.
+        #expect(AlertText.refusal(.differs(pid: 2, facts: facts(URL(filePath: "/bin/ls")))) == AlertText.refusal(.changed))
         #expect(AlertText.refusal(.ready(pid: 2, facts: facts(URL(filePath: "/bin/ls")))) == nil)
     }
 }

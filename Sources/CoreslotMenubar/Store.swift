@@ -178,27 +178,27 @@ final class Store {
             defer { acting = false }
             let end = await stop(holdName: hold.name, using: binary, runner: runner, inspector: inspector,
                                  ask: { @MainActor in Confirm.ask(AlertText.stop(hold, pid: $0, facts: $1)) }, signal: feed.signal)
-            // The start time of the facts the check that ended it read: never an earlier check's.
-            let who = { (c: StopCheck) in "pid \(hold.pid), started \(c.started.map(String.init) ?? "unknown"), hold \(name)" }
+            // The pid and the start time of one read: the check that ended it, or the last before the signal.
+            let who = { (r: (pid: pid_t?, started: Int64?)) in "pid \(r.pid.map(String.init) ?? String(hold.pid)), started \(r.started.map(String.init) ?? "unknown"), hold \(name)" }
             switch end {
-            case .notAsked(let c): tell(stop: c, who(c))
-            case .declined(let c): Log.actions.say("stop declined: \(who(c))")
-            case .notSent(let c, let differs): tell(stop: c, who(c), differs: differs)
+            case .notAsked(let c), .notSent(let c): tell(stop: c, who(c.read))
+            case .declined(let c): Log.actions.say("stop declined: \(who(c.read))")
             case .signalled(let outcome, let c):
                 let words = switch outcome { case .sent: "sent"; case .changed: "not sent, the process changed"; case .failed(let e): "failed, errno \(e)" }
-                Log.actions.say("stop \(words): SIGTERM to \(who(c))", failure: outcome != .sent)
+                let started = if case .changed(let s) = outcome { s } else { c.read.started }
+                Log.actions.say("stop \(words): SIGTERM to \(who((c.read.pid, started)))", failure: outcome != .sent)
                 if let words = AlertText.stopOutcome(outcome) { Confirm.tell(words) }
                 await source?.readNow()
             }
         }
     }
 
-    /// `who`: our facts, then the name; `differs`: `c` is the `.ready` check of another process than the one confirmed.
-    private func tell(stop c: StopCheck, _ who: String, differs: Bool = false) {
-        var why = switch c { case .gone: "the hold is gone"; case .changed: "the hold is no longer stoppable"; case .refused(let r, _): r; case .ready: "" }
-        if differs { why = "the process differs from the one confirmed" }
-        Log.actions.say("stop not sent, \(why): \(who)", failure: differs || (c != .gone && c != .changed))
-        if let words = AlertText.refusal(differs ? .changed : c) { Confirm.tell(words) }
+    /// `who`: our facts, then the name.
+    private func tell(stop c: StopCheck, _ who: String) {
+        let why = switch c { case .gone: "the hold is gone"; case .changed: "the hold is no longer stoppable"; case .ready: ""
+                             case .differs: "the process differs from the one confirmed"; case .refused(let r, _, _): r }
+        Log.actions.say("stop not sent, \(why): \(who)", failure: c != .gone && c != .changed)
+        if let words = AlertText.refusal(c) { Confirm.tell(words) }
     }
 
     /// The one polling loop; a new choice in Settings cancels it from outside and starts another.

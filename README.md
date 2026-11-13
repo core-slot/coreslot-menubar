@@ -87,9 +87,9 @@ It logs changes, never every poll, in four categories:
   format not understood, config error, an older coreslot, another schema).
 - `actions`: each cancel asked, not asked (no coreslot, or another action in flight), declined,
   requested, refused (with what `status` then gave) or failed, with the ticket. Each stop asked,
-  not asked, declined, not sent and why, or `SIGTERM` sent or failed with its errno, with the hold's
-  pid, the process's start time as the last check before the line read it (`unknown` when no check
-  read the process), and the hold.
+  not asked, declined, not sent and why, or `SIGTERM` sent or failed with its errno, with a pid and
+  a start time from one read, the check that ended the stop or the read right before the signal (the
+  row's pid and `unknown` when none read the process), and the hold.
 - `telemetry`: an error reading the telemetry or the run log, by stream (`samples`, `events`,
   `runs`) and errno, once while it lasts and once when it ends; choosing another coreslot or state
   directory starts afresh, so an error that outlasts the change is logged again.

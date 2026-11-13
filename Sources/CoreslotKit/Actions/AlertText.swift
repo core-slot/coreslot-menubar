@@ -53,7 +53,7 @@ public enum AlertText {
         switch c {
         case .ready: nil
         case .gone: "This command has already ended; nothing was sent."
-        case .changed: "This command changed since it was shown; nothing was sent."
+        case .changed, .differs: "This command changed since it was shown; nothing was sent."
         case .refused: "This process could not be confirmed as the command coreslot reports; nothing was sent."
         }
     }
