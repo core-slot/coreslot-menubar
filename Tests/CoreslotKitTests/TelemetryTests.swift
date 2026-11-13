@@ -317,11 +317,22 @@ extension JSONLTail {
         runs.apply(line("a", 1, 10, .waiting(.init(reason: "room_short"))))
         runs.apply(line("c", 1, 20, .waiting(.init(reason: "behind_ticket", ahead: "t1"))))
         runs.apply(line("a", 1, 40, .waiting(.init(reason: "room_short"))))
-        runs.apply(line("a", 1, 50, .admitted))
+        runs.apply(line("a", 1, 50, .admitted("h")))
         runs.apply(line("b", 1, 55, .waiting(.init(reason: "behind_head", noPass: "too_long"))))
         let s = { (from: Int64, to: Int64, reason: String) in Runs.HeadReason(fromNS: from * 1_000_000_000, toNS: to * 1_000_000_000, reason: reason) }
         #expect(runs.headReasons(fromNS: 0, toNS: 200_000_000_000) == [s(10, 40, "room_short"), s(40, 50, "room_short"), s(55, 87, "behind_head")])
         #expect(runs.headReasons(fromNS: 45_000_000_000, toNS: 60_000_000_000) == [s(45, 50, "room_short"), s(55, 60, "behind_head")])
+    }
+
+    // Mutation: drop the hold index (`byHold[hold] = key`); the restart's attempt is not found, red.
+    @Test func aRunningAttemptIsFoundByItsHoldWithItsOwnArrival() {
+        var runs = Runs()
+        runs.apply(line("r", 1, 1, enqueue("t1")))
+        runs.apply(line("r", 1, 2, .admitted("h1")))
+        runs.apply(line("r", 2, 9, enqueue("t2")))
+        runs.apply(line("r", 2, 12, .admitted("h2")))
+        #expect(runs.running(holdName: "h2")?.arrivalNS == 9_000_000_000 && runs.running(holdName: "h1")?.key.attempt == 1)
+        #expect(runs.running(holdName: "h3") == nil)
     }
 
     // Mutation: record the ticket from the waiting line instead of `enqueue`; nothing is found, red.

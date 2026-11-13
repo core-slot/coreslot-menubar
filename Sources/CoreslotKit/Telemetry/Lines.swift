@@ -57,7 +57,8 @@ public struct EventLine: JSONLine, Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case enqueue(Enqueue)
         case waiting(Waiting)
-        case admitted
+        /// With the hold's name.
+        case admitted(String?)
         case ended(Ended)
         /// A line that ended the wait without a start, by its name: `cancelled`, `interrupted`,
         /// `refused`, `timeout` or `not_started`.
@@ -124,7 +125,7 @@ public struct EventLine: JSONLine, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, run, attempt, n, label
+        case v, e, run, attempt, n, label, hold
         case timeNS = "time_ns"
     }
 }
@@ -188,7 +189,7 @@ extension EventLine {
         switch try c.decode(String.self, forKey: .e) {
         case "enqueue": kind = .enqueue(try Enqueue(from: decoder))
         case "waiting": kind = .waiting(try Waiting(from: decoder))
-        case "admitted": kind = .admitted
+        case "admitted": kind = .admitted(try c.decodeIfPresent(String.self, forKey: .hold))
         case "ended": kind = .ended(try Ended(from: decoder))
         case let e where ["cancelled", "interrupted", "refused", "timeout", "not_started"].contains(e): kind = .waitEnded(e)
         case let e: kind = .other(e)

@@ -11,9 +11,12 @@ struct TimelineModel {
     let endNS: Int64
     let nowNS: Int64
     let totals: [(title: String, value: String)]
-    /// Nil while the record looks off; `memory.chart` is nil when `status` gives no machine size.
+    /// Nil with `empty`; `memory.chart` is nil when `status` gives no machine size.
     let memory: Memory?
     let strip: Strip?
+    /// Why there is no memory chart, no reasons and no processes: one calm state, naming the
+    /// configuration file that turns the record on.
+    let empty: (looksOff: Bool, configFile: String)?
     let rows: [Row]
     /// The labels the filter offers, raw, in colour order.
     let labels: [String]
@@ -38,7 +41,7 @@ struct TimelineModel {
 
     struct Point: Identifiable {
         var id: Int64 { timeNS }
-        let timeNS: Int64
+        var timeNS: Int64
         let inUseMiB: Int64
         let outsideMiB: Int64
         /// Per layer, in `layers` order.
@@ -91,25 +94,24 @@ extension Series.Range {
 }
 
 extension Store {
-    /// How far back the window may be scrolled: what the store keeps.
-    static let timelineKeepS: Int64 = 24 * 60 * 60
-
     /// Nil without a document; `end` nil is live.
     func timeline(range: Series.Range, end: Date?, label: String?) -> TimelineModel? {
         guard let doc = document else { return nil }
         let nowNS = now.nanosecondsSince1970
         let span = range.spanS * 1_000_000_000
-        let viewEnd = min(nowNS, max(nowNS - Self.timelineKeepS * 1_000_000_000 + span, end?.nanosecondsSince1970 ?? nowNS))
+        let viewEnd = min(nowNS, max(nowNS - RecordReader.keepS * 1_000_000_000 + span, end?.nanosecondsSince1970 ?? nowNS))
         let (start, endNS) = (viewEnd - span, viewEnd + span / 4)
         let off = recordState == .looksOff
-        let all = rows(doc, nowNS: nowNS, recordOff: off).filter { ($0.waitFromNS ?? $0.runFromNS ?? $0.toNS) <= endNS && $0.toNS >= start }
+        let all = runRows(doc, nowNS: nowNS, recordOff: off, fromNS: start).filter { ($0.waitFromNS ?? $0.runFromNS ?? $0.toNS) <= endNS }
         let shown = all.filter { label == nil || $0.rawLabel == label }
         let chart = off ? nil : memoryChart(doc, range: range, startNS: start, endNS: endNS, nowNS: nowNS)
+        // Samples are written only while a command runs, so an idle range holds none.
+        let empty = off || chart?.segments.isEmpty == true ? (looksOff: off, configFile: configFile) : nil
         return TimelineModel(
             startNS: start, viewEndNS: viewEnd, endNS: endNS, nowNS: nowNS,
             totals: totals(doc, rows: shown, chart: chart, startNS: start, viewEndNS: viewEnd, recordOff: off),
-            memory: off ? nil : .init(chart: chart, largest: largest(nowNS)),
-            strip: off ? nil : strip(all, fromNS: start, toNS: min(endNS, nowNS)),
+            memory: empty == nil ? .init(chart: chart, largest: largestProcesses(5)) : nil,
+            strip: empty == nil ? strip(all, fromNS: start, toNS: min(endNS, nowNS)) : nil, empty: empty,
             rows: shown,
             labels: labelColors.sorted { $0.value < $1.value }.map(\.key))
     }
@@ -118,7 +120,11 @@ extension Store {
 
     // MARK: rows
 
-    private func rows(_ doc: StatusDocument, nowNS: Int64, recordOff: Bool) -> [TimelineModel.Row] {
+    /// The runs that end at or after `fromNS`, of the timeline and the popover's strip alike.
+    /// `arrival_ns` and `created_ns` are a run's first arrival, also after a restart: a live
+    /// attempt waited from its own `enqueue`, and a restart the record does not have waited for
+    /// all it shows.
+    func runRows(_ doc: StatusDocument, nowNS: Int64, recordOff: Bool, fromNS: Int64) -> [TimelineModel.Row] {
         var out: [TimelineModel.Row] = []
         if !recordOff && !record.runs.attempts.isEmpty {
             for a in record.runs.attempts.values {
@@ -129,32 +135,34 @@ extension Store {
             for (i, r) in record.finished.enumerated() { out.append(logRow(r, index: i)) }
         }
         for h in doc.holds {
-            let peak = record.tracks.peak(h.name)
+            let peak = record.tracks.peak(h.name), a = record.runs.running(holdName: h.name)
+            let waitFrom = a?.arrivalNS ?? (h.stops > 0 || (a?.key.attempt ?? 1) > 1 ? nil : h.arrivalNS)
             out.append(.init(
-                id: h.name, run: h.name, rawLabel: h.label, label: SafeText.display(h.label), color: color(h.label), waitFromNS: h.arrivalNS,
+                id: h.name, run: h.name, rawLabel: h.label, label: SafeText.display(h.label), color: color(h.label), waitFromNS: waitFrom,
                 runFromNS: h.startNS, toNS: nowNS, live: true, stopped: false, restart: h.stops > 0, timedOut: false,
                 forecastEndNS: h.leftS.flatMap { $0 > 0 ? ahead(nowNS, $0) : nil }, forecastStartNS: nil,
                 detail: [
                     SafeText.display(h.label) + (h.container == true ? " · container" : ""),
-                    "waited \(span(h.arrivalNS, h.startNS))", "running since \(clock(h.startNS)), \(duration(h.startNS, nowNS))",
+                    "waited " + (waitFrom.map { span($0, h.startNS) } ?? "before its restart"), "running since \(clock(h.startNS)), \(duration(h.startNS, nowNS))",
                     "needs \(Formatting.size(h.needMiB)) · now \(Formatting.size(h.footprintMiB))" + (peak.map { " · peak \(Formatting.size($0))" } ?? ""),
                     "finishes in " + Formatting.timeLeft(h.leftS),
                 ] + (h.stops > 0 ? ["restarted after \(h.stops) memory \(h.stops == 1 ? "stop" : "stops")"] : [])))
         }
         let live = doc.tickets.filter { $0.state != "dead" }
         for (i, t) in live.enumerated() {
-            let first = i == 0
+            let first = i == 0, from = t.name.flatMap { record.runs.waiting(ticketName: $0)?.arrivalNS } ?? t.createdNS
             out.append(.init(
-                id: t.id, run: t.id, rawLabel: t.label, label: SafeText.display(t.label), color: color(t.label), waitFromNS: t.createdNS, runFromNS: nil,
+                id: t.id, run: t.id, rawLabel: t.label, label: SafeText.display(t.label), color: color(t.label), waitFromNS: from, runFromNS: nil,
                 toNS: nowNS, live: true, stopped: false, restart: false, timedOut: false, forecastEndNS: nil,
                 forecastStartNS: first ? t.expectedWaitS.map { ahead(nowNS, $0) } : nil,
                 detail: [
-                    SafeText.display(t.label), "waiting since \(clock(t.createdNS)), \(Formatting.duration(t.waitedS))",
+                    SafeText.display(t.label), "waiting since \(clock(from)), \(duration(from, nowNS))",
                     "needs \(Formatting.size(t.needMiB))",
                     first ? Formatting.firstTicketWait(t.expectedWaitS) : "behind \(i) in the queue",
                 ]))
         }
-        return out.sorted { ($0.waitFromNS ?? $0.runFromNS ?? $0.toNS, $0.id) < ($1.waitFromNS ?? $1.runFromNS ?? $1.toNS, $1.id) }
+        return out.filter { $0.toNS >= fromNS }
+            .sorted { ($0.waitFromNS ?? $0.runFromNS ?? $0.toNS, $0.id) < ($1.waitFromNS ?? $1.runFromNS ?? $1.toNS, $1.id) }
     }
 
     private func attemptRow(_ a: Runs.Attempt, end: Runs.End) -> TimelineModel.Row {
@@ -223,28 +231,36 @@ extension Store {
         let labels = Set(buckets.flatMap { $0.point?.footprintMiB.keys.map { $0 } ?? [] })
         let layers = labels.sorted { (color($0), $0) < (color($1), $1) }.map { (label: $0, color: color($0)) }
         var segments: [[TimelineModel.Point]] = [], current: [TimelineModel.Point] = []
-        for b in buckets {
-            guard let p = b.point else {
-                if !current.isEmpty { segments.append(current) }
-                current = []
-                continue
+        let width = source.resolutionS * 1_000_000_000
+        func close() {
+            // A bucket alone is drawn across its width: one point draws no area and no line.
+            if current.count == 1, let p = current.first {
+                current = [p.timeNS / width * width, (p.timeNS / width + 1) * width].map { var q = p; q.timeNS = $0; return q }
             }
+            if !current.isEmpty { segments.append(current) }
+            current = []
+        }
+        for b in buckets {
+            guard let p = b.point else { close(); continue }
             current.append(.init(
                 timeNS: p.timeNS, inUseMiB: p.inUseMiB, outsideMiB: p.outsideMiB,
                 footprintMiB: layers.map { p.footprintMiB[$0.label] ?? 0 }, reservedMiB: p.reservedMiB))
         }
-        if !current.isEmpty { segments.append(current) }
+        close()
         let reservedNow = doc.mem.flatMap { m in m.reserveMiB.flatMap { r in m.roomMiB.map { machine - r - $0 } } }
         return .init(
             machineMiB: machine, segments: segments, layers: layers,
             peak: segments.joined().max { $0.inUseMiB < $1.inUseMiB }, reservedNowMiB: endNS > nowNS ? reservedNow : nil)
     }
 
-    private func largest(_ nowNS: Int64) -> String? {
-        guard let line = record.memory, nowNS - line.timeNS <= 120_000_000_000 else { return nil }
+    /// A list of the largest processes, not of what is outside coreslot; "others" closes it. From
+    /// `memory.top` and the Docker VM's largest process, `memory.vm`, unless `top` names it, of a
+    /// line at most 2 minutes old by the series' time rule.
+    func largestProcesses(_ count: Int) -> String? {
+        guard let line = record.memory, placed(line.timeNS, nowNS: now.nanosecondsSince1970, spanS: 120) else { return nil }
         let largest = (line.top + [line.vm].compactMap { $0 }.filter { !line.top.contains($0) }).sorted { $0.footprintMiB > $1.footprintMiB }
         guard !largest.isEmpty else { return nil }
-        return "Largest processes: " + largest.prefix(5).map { "\(SafeText.display($0.name)) \(Formatting.size($0.footprintMiB))" }
+        return "Largest processes: " + largest.prefix(count).map { "\(SafeText.display($0.name)) \(Formatting.size($0.footprintMiB))" }
             .joined(separator: ", ") + ", others"
     }
 

@@ -150,7 +150,7 @@ public struct Series: Sendable {
 /// The series' time rule, which `HoldTracks` follows too: a sample is placed by its own time, in
 /// whatever order it comes, unless it is dated more than `Series.aheadNS` past `nowNS`, the
 /// caller's clock, or more than `spanS` before it.
-func placed(_ timeNS: Int64, nowNS: Int64, spanS: Int64) -> Bool {
+public func placed(_ timeNS: Int64, nowNS: Int64, spanS: Int64) -> Bool {
     timeNS <= nowNS + Series.aheadNS && timeNS >= nowNS - spanS * 1_000_000_000
 }
 

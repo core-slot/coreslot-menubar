@@ -67,6 +67,8 @@ final class Store {
     @ObservationIgnored private var acting = false
     /// Counts the restarts a new choice in Settings makes; what an older loop brings is dropped.
     @ObservationIgnored private var generation = 0
+    /// The wait before looking for `coreslot` again; showing a surface cuts it short.
+    @ObservationIgnored private var nap: Task<Void, Never>?
 
     private static let binaryKey = "coreslot", stateDirKey = "stateDirectory"
 
@@ -109,6 +111,11 @@ final class Store {
 
     var now: Date { feed.clock() }
 
+    /// The configuration file of the `coreslot` this app runs, with the environment it runs it in.
+    var configFile: String {
+        Locate.configFile(environment: ProcessInfo.processInfo.environment.merging(chosenStateDir.map { ["CORESLOT_STATE_DIR": $0.path] } ?? [:]) { $1 })
+    }
+
     var icon: IconState { reading.map(IconState.init) ?? .idle }
 
     /// The document; a reading of notices alone has none, and feeds nothing.
@@ -130,7 +137,7 @@ final class Store {
         #endif
         let fast = !visible.isEmpty
         if on { refreshReport() }
-        guard let source else { return }
+        guard let source else { if on { nap?.cancel() }; return }
         Task {
             await source.setInterval(fast ? .seconds(2) : .seconds(10))
             if on { await source.readNow() }
@@ -190,15 +197,21 @@ final class Store {
             } else {
                 guard generation == self.generation else { return }
                 await ingest(.problem(.notFound))
-                try? await Task.sleep(for: .seconds(10))
+                let nap = Task { [visible] in _ = try? await Task.sleep(for: visible.isEmpty ? .seconds(10) : .seconds(2)) }
+                self.nap = nap
+                await nap.value
             }
         }
-        guard let binary else { return }
+        guard let binary, generation == self.generation else { return }
         let source = StatusSource(binary: binary, environment: nil, runner: runner)
         self.source = source
         await source.setInterval(visible.isEmpty ? .seconds(10) : .seconds(2))
         refreshReport()
-        for await r in await source.readings() where generation == self.generation { await ingest(r) }
+        for await r in await source.readings() where generation == self.generation {
+            await ingest(r)
+            // The file is gone from where it was found: look for it again, wherever it is now.
+            if r == .problem(.notFound) { return restart() }
+        }
     }
 
     /// One reading, the record and the report, outside the poller: a fixture shown once.
@@ -278,7 +291,7 @@ struct RecordSnapshot: Sendable {
 /// Tails the telemetry and the run log of the state directory `status` names, off the main actor.
 /// It only reads: nothing under the state directory is ever written.
 actor RecordReader {
-    private static let keepS: TimeInterval = 24 * 60 * 60
+    static let keepS: Int64 = 24 * 60 * 60
     private static let chunk = 1 << 20
     /// At most this many chunks of each log per update: a backlog is read over several updates.
     private static let chunksPerUpdate = 16
@@ -295,7 +308,8 @@ actor RecordReader {
             events = JSONLTail(stateDir: stateDir, log: .events)
             runLog = JSONLTail(stateDir: stateDir, log: .runs)
         }
-        let cutNS = at.addingTimeInterval(-Self.keepS).nanosecondsSince1970
+        let (cut, atNS) = (at.addingTimeInterval(-Double(Self.keepS)), at.nanosecondsSince1970)
+        let cutNS = cut.nanosecondsSince1970
         snapshot.newSamples = 0
         drain(&samples) { line in
             guard let s = SampleLine(line: line), s.timeNS >= cutNS else { return }
@@ -306,7 +320,9 @@ actor RecordReader {
         drain(&events) { line in
             if let e = EventLine(line: line) {
                 if e.timeNS >= cutNS { snapshot.runs.apply(e) }
-            } else if let m = MemoryLine(line: line), m.timeNS >= snapshot.memory?.timeNS ?? cutNS {
+            } else if let m = MemoryLine(line: line), placed(m.timeNS, nowNS: atNS, spanS: Self.keepS),
+                      // The newest usable line by its time, as the series places samples.
+                      !(snapshot.memory.map { placed($0.timeNS, nowNS: atNS, spanS: Self.keepS) && $0.timeNS > m.timeNS } ?? false) {
                 snapshot.memory = m
             }
         }
@@ -314,7 +330,7 @@ actor RecordReader {
             if let r = RunLogLine(line: line), r.timeNS >= cutNS { snapshot.finished.append(r) }
         }
         snapshot.finished.removeAll { $0.timeNS < cutNS }
-        snapshot.runs.prune(endedBefore: at.addingTimeInterval(-Self.keepS))
+        snapshot.runs.prune(endedBefore: cut)
         if let doc {
             snapshot.tracks.add(doc, at: at)
             snapshot.tracks.keep(only: Set(doc.holds.map(\.name)))

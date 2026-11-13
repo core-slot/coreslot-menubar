@@ -186,7 +186,7 @@ struct TimelineStrip: View {
             let rect = CGRect(x: px(r.fromNS), y: 0, width: max(1, px(r.toNS) - px(r.fromNS)), height: size.height)
             context.fill(Path(rect), with: .color(reasonColor(Store.reasonKey(r.reason))))
         }
-        nowLine(&context, size, model)
+        nowLine(&context, size, at: model.x(model.nowNS))
     }
 }
 
@@ -264,28 +264,8 @@ private struct RowBar: View {
     private func draw(_ context: inout Sketcher, _ size: CGSize) {
         let px = { (t: Int64) in size.width * min(1, max(0, model.x(t))) }
         let h = size.height
-        let color = Palette.label(row.color)
-        if model.nowNS < model.endNS {
-            context.fill(Path(CGRect(x: px(model.nowNS), y: 0, width: size.width - px(model.nowNS), height: h)), with: .color(.primary.opacity(0.04)))
-        }
-        if let from = row.waitFromNS {
-            Palette.hatch(&context, CGRect(x: px(from), y: 0, width: px(row.runFromNS ?? row.toNS) - px(from), height: h), color)
-        }
-        if let run = row.runFromNS {
-            let rect = CGRect(x: px(run), y: 0, width: max(1.5, px(row.toNS) - px(run)), height: h)
-            context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(color))
-        }
-        let dashed = StrokeStyle(lineWidth: 1, dash: [3, 2])
-        if let end = row.forecastEndNS {
-            let rect = CGRect(x: px(model.nowNS), y: 0, width: px(end) - px(model.nowNS), height: h).insetBy(dx: 0.5, dy: 0.5)
-            context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(color), style: dashed)
-        }
-        if let start = row.forecastStartNS {
-            var tick = Path()
-            tick.move(to: CGPoint(x: px(start), y: -1))
-            tick.addLine(to: CGPoint(x: px(start), y: h + 1))
-            context.stroke(tick, with: .color(color), style: dashed)
-        }
+        nowZone(&context, size, at: model.x(model.nowNS))
+        drawRun(&context, row, nowNS: model.nowNS, x: model.x, width: size.width, top: 0, height: h)
         var marks: [(String, CGFloat)] = []
         if row.restart { marks.append(("arrow.clockwise", px(row.waitFromNS ?? row.runFromNS ?? row.toNS) - 7)) }
         if row.timedOut, let run = row.runFromNS { marks.append(("clock.badge.exclamationmark", px(run) + 7)) }
@@ -293,17 +273,48 @@ private struct RowBar: View {
         for (name, x) in marks {
             context.draw(Text(Image(systemName: name)).font(.system(size: 9, weight: .semibold)).foregroundStyle(.primary), at: CGPoint(x: x, y: h / 2))
         }
-        nowLine(&context, size, model)
+        nowLine(&context, size, at: model.x(model.nowNS))
     }
 }
 
-private func nowLine(_ context: inout Sketcher, _ size: CGSize, _ m: TimelineModel) {
-    guard m.nowNS <= m.endNS else { return }
+/// One run, of the timeline or of the popover's strip, in a band from `top`: hatched while waiting,
+/// solid while running, the forecast dashed. `x` places a time at 0 to 1 of `width`. A forecast end
+/// past the zone runs off its edge, open there; a forecast start past it is not drawn.
+func drawRun(_ c: inout Sketcher, _ row: TimelineModel.Row, nowNS: Int64, x: (Int64) -> Double, width: CGFloat, top: CGFloat, height h: CGFloat) {
+    func px(_ t: Int64) -> CGFloat { width * min(1, max(0, x(t))) }
+    let (color, radius, dashed) = (Palette.label(row.color), min(2, h / 4), StrokeStyle(lineWidth: 1, dash: [3, 2]))
+    if let from = row.waitFromNS {
+        Palette.hatch(&c, CGRect(x: px(from), y: top, width: px(row.runFromNS ?? row.toNS) - px(from), height: h), color)
+    }
+    if let run = row.runFromNS {
+        // A run of a second still shows.
+        c.fill(Path(roundedRect: CGRect(x: px(run), y: top, width: max(1.5, px(row.toNS) - px(run)), height: h), cornerRadius: radius), with: .color(color))
+    }
+    if let end = row.forecastEndNS, x(nowNS) < 1 {
+        let r = CGRect(x: px(nowNS), y: top, width: px(end) - px(nowNS), height: h).insetBy(dx: 0.5, dy: 0.5)
+        var open = Path()
+        open.addLines([CGPoint(x: width, y: r.minY), CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.minX, y: r.maxY), CGPoint(x: width, y: r.maxY)])
+        c.stroke(x(end) > 1 ? open : Path(roundedRect: r, cornerRadius: radius), with: .color(color), style: dashed)
+    }
+    if let start = row.forecastStartNS, x(start) <= 1 {
+        var tick = Path()
+        tick.addLines([CGPoint(x: px(start), y: top - 1), CGPoint(x: px(start), y: top + h + 1)])
+        c.stroke(tick, with: .color(color), style: dashed)
+    }
+}
+
+/// The forecast zone's faint fill, right of now at `x` of the width, while now is in view.
+func nowZone(_ c: inout Sketcher, _ size: CGSize, at x: Double) {
+    guard x < 1 else { return }
+    c.fill(Path(CGRect(x: size.width * x, y: 0, width: size.width * (1 - x), height: size.height)), with: .color(.primary.opacity(0.04)))
+}
+
+/// Now, at `x` of the width, while it is in view.
+func nowLine(_ c: inout Sketcher, _ size: CGSize, at x: Double) {
+    guard x <= 1 else { return }
     var now = Path()
-    let x = size.width * m.x(m.nowNS)
-    now.move(to: CGPoint(x: x, y: 0))
-    now.addLine(to: CGPoint(x: x, y: size.height))
-    context.stroke(now, with: .color(.secondary), lineWidth: 1)
+    now.addLines([CGPoint(x: size.width * x, y: 0), CGPoint(x: size.width * x, y: size.height)])
+    c.stroke(now, with: .color(.secondary), lineWidth: 1)
 }
 
 /// A reason's colour, always beside its name in the legend.

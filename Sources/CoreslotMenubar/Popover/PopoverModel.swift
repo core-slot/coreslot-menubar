@@ -19,7 +19,7 @@ struct PopoverModel {
         let waiting: [WaitingRow]
         /// Said under the waiting rows when the record looks off and their reasons are missing.
         let recordNote: String?
-        let strip: StripModel
+        let strip: RunStrip
         let totals: String?
     }
 
@@ -86,31 +86,17 @@ struct WaitingRow: Identifiable {
     let cancelRequested: Bool
 }
 
-/// The last 30 minutes and a forecast zone of a fifth of the width, as fractions of the width.
-struct StripModel {
+/// The last 30 minutes and a forecast zone of a quarter of that after now, drawn as the timeline
+/// draws its runs.
+struct RunStrip {
     static let pastS: Int64 = 30 * 60
-    static let nowX = 0.8
 
-    struct Bar: Identifiable {
-        let id: String
-        let color: Int
-        let waitFrom: Double
-        /// Nil for a wait that ended without a start.
-        let runFrom: Double?
-        let to: Double
-    }
+    let startNS: Int64
+    let endNS: Int64
+    let nowNS: Int64
+    let rows: [TimelineModel.Row]
 
-    /// A dashed outline: a running command's expected end, or the first in line's expected start.
-    struct Forecast: Identifiable {
-        let id: String
-        let color: Int
-        let from: Double
-        let to: Double
-        let row: Int?
-    }
-
-    let bars: [Bar]
-    let forecasts: [Forecast]
+    func x(_ t: Int64) -> Double { Double(t - startNS) / Double(endNS - startNS) }
 }
 
 extension Store {
@@ -119,7 +105,9 @@ extension Store {
         switch reading {
         case .problem(let p):
             let words = Words.problem(p)
-            return PopoverModel(level: nil, tone: .unknown, notices: [], body: .unavailable(state: words.state, fix: words.fix))
+            // Only the file chosen in Settings is run, so the fix is there, not an install.
+            let fix = p == .notFound && chosenBinary != nil ? "The file chosen in Settings did not answer as coreslot: choose another there." : words.fix
+            return PopoverModel(level: nil, tone: .unknown, notices: [], body: .unavailable(state: words.state, fix: fix))
         case .notices(let notices):
             return PopoverModel(level: nil, tone: .unknown, notices: notices.map(Words.notice), body: .noticeOnly)
         case .document(let doc, let notices):
@@ -193,15 +181,7 @@ extension Store {
         if let short = bar.shortfallMiB {
             m.shortfall = "Set aside \(Formatting.size(bar.setAsideMiB)), \(Formatting.size(short)) short"
         }
-        // A list of the largest processes, not of what is outside coreslot; "others" closes it.
-        // `memory.top` and the Docker VM's largest process, `memory.vm`, unless `top` names it.
-        if let line = record.memory, nowNS - line.timeNS <= 120_000_000_000 {
-            let largest = (line.top + [line.vm].compactMap { $0 }.filter { !line.top.contains($0) })
-                .sorted { $0.footprintMiB > $1.footprintMiB }
-            guard !largest.isEmpty else { return m }
-            let named = largest.prefix(3).map { "\(SafeText.display($0.name)) \(Formatting.size($0.footprintMiB))" }
-            m.largest = "Largest processes: " + named.joined(separator: ", ") + ", others"
-        }
+        m.largest = largestProcesses(3)
         return m
     }
 
@@ -245,47 +225,10 @@ extension Store {
 
     private func runs(ticketName: String) -> Runs.Attempt? { record.runs.waiting(ticketName: ticketName) }
 
-    private func strip(_ doc: StatusDocument, recordOff: Bool) -> StripModel {
-        let now = nowNS, from = now - StripModel.pastS * 1_000_000_000
-        let xs = { (t: Double) in min(1, max(0, StripModel.nowX * (t - Double(from)) / Double(now - from))) }
-        let x = { (t: Int64) in xs(Double(t)) }
-        var bars: [StripModel.Bar] = []
-        let attempts = record.runs.attempts.values.filter { $0.end.map { $0.timeNS >= from } ?? false }
-        if !recordOff && !record.runs.attempts.isEmpty {
-            for a in attempts {
-                guard let end = a.end else { continue }
-                let start = a.arrivalNS ?? a.admittedNS ?? end.timeNS
-                bars.append(.init(
-                    id: "\(a.key.run)/\(a.key.attempt)", color: color(a.label), waitFrom: x(start),
-                    runFrom: a.admittedNS.map(x), to: x(end.timeNS)))
-            }
-        } else {
-            for (i, r) in record.finished.enumerated() {
-                // In `Double`: seconds as large as the clamp lets through do not fit in nanoseconds.
-                let ran = Double(r.timeNS) + r.waitedS * 1e9, end = ran + r.ranS * 1e9
-                guard end >= Double(from) else { continue }
-                bars.append(.init(id: "log/\(i)", color: color(r.label), waitFrom: x(r.timeNS), runFrom: xs(ran), to: xs(end)))
-            }
-        }
-        for h in doc.holds {
-            bars.append(.init(id: h.name, color: color(h.label), waitFrom: x(h.arrivalNS), runFrom: x(h.startNS), to: x(now)))
-        }
-        for t in doc.tickets where t.state != "dead" {
-            bars.append(.init(id: t.id, color: color(t.label), waitFrom: x(t.createdNS), runFrom: nil, to: x(now)))
-        }
-        bars = Array(bars.sorted { $0.waitFrom < $1.waitFrom }.suffix(10))
-        let scale = (1 - StripModel.nowX) / Double(StripModel.pastS / 4)
-        var forecasts: [StripModel.Forecast] = []
-        for h in doc.holds {
-            guard let left = h.leftS, left > 0 else { continue }
-            forecasts.append(.init(
-                id: h.name, color: color(h.label), from: StripModel.nowX, to: min(1, StripModel.nowX + Double(left) * scale),
-                row: bars.firstIndex { $0.id == h.name }))
-        }
-        if let first = doc.tickets.first(where: { $0.state != "dead" }), let wait = first.expectedWaitS {
-            let at = min(1, StripModel.nowX + Double(wait) * scale)
-            forecasts.append(.init(id: first.id, color: color(first.label), from: at, to: at, row: bars.firstIndex { $0.id == first.id }))
-        }
-        return StripModel(bars: bars, forecasts: forecasts)
+    /// The runs of the last 30 minutes, the latest 10.
+    private func strip(_ doc: StatusDocument, recordOff: Bool) -> RunStrip {
+        let (now, past) = (nowNS, RunStrip.pastS * 1_000_000_000)
+        let rows = runRows(doc, nowNS: now, recordOff: recordOff, fromNS: now - past)
+        return RunStrip(startNS: now - past, endNS: now + past / 4, nowNS: now, rows: Array(rows.suffix(10)))
     }
 }

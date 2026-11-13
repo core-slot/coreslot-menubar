@@ -66,6 +66,14 @@ import Testing
         #expect(Locate.find(override: nil, directories: [dir], path: nil) == nil)
     }
 
+    // Mutation: take the home from `$HOME`; it is not `/elsewhere`, red. Mutation: take an empty
+    // override as one; `config.toml` in no directory, red.
+    @Test func theConfigurationFileFollowsCoreslotsRule() throws {
+        let home = String(cString: try #require(getpwuid(getuid())).pointee.pw_dir) + "/.config/coreslot/config.toml"
+        #expect(Locate.configFile(environment: ["CORESLOT_STATE_DIR": "/s/", "HOME": "/elsewhere"]) == "/s/config.toml")
+        #expect(Locate.configFile(environment: ["HOME": "/elsewhere"]) == home && Locate.configFile(environment: ["CORESLOT_STATE_DIR": ""]) == home)
+    }
+
     private func write(_ url: URL, mode: Int) throws {
         try Data("#!/bin/sh\n".utf8).write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)

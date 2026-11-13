@@ -80,8 +80,8 @@ struct TimelineView: View {
                 TimelineMemory(model: m, memory: memory)
                 Divider()
                 TimelineStrip(model: m, strip: strip)
-            } else {
-                RecordOff()
+            } else if let empty = m.empty {
+                RecordOff(looksOff: empty.looksOff, configFile: empty.configFile)
             }
             Divider()
             TimelineRuns(model: m)
@@ -102,7 +102,7 @@ struct TimelineView: View {
     private func shift(_ from: Date, by dx: CGFloat, plot: CGFloat) {
         let now = store.now
         let to = from.addingTimeInterval(-Double(dx) / Double(plot) * Double(range.spanS))
-        let earliest = now.addingTimeInterval(-Double(Store.timelineKeepS - range.spanS))
+        let earliest = now.addingTimeInterval(-Double(RecordReader.keepS - range.spanS))
         end = to >= now.addingTimeInterval(-1) ? nil : max(earliest, to)
     }
 
@@ -149,12 +149,18 @@ private struct TotalsRow: View {
     }
 }
 
-/// The record looks off: one calm state for the memory chart, the reasons and the processes.
+/// The record looks off, or holds nothing in the range: one calm state for the memory chart, the
+/// reasons and the processes.
 private struct RecordOff: View {
+    let looksOff: Bool
+    let configFile: String
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("coreslot's local record looks off").font(.headline)
-            Text("Memory over time, why commands waited and the largest processes come from it. These two lines in config.toml, in coreslot's state directory, turn it on:")
+            Text(looksOff ? "coreslot's local record looks off" : "Nothing was recorded in this range").font(.headline)
+            Text((looksOff ? "Memory over time, why commands waited and the largest processes come from it."
+                  : "coreslot records memory and why commands wait only while a command runs, and only with its local record on.")
+                + " These two lines in \(SafeText.display(configFile)) turn it on:")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text("[telemetry]\nenabled = true")
@@ -163,9 +169,11 @@ private struct RecordOff: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-            Text("Until then the runs below come from the run log and from what this app has seen.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            if looksOff {
+                Text("Until then the runs below come from the run log and from what this app has seen.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)

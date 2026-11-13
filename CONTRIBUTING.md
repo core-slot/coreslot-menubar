@@ -53,7 +53,7 @@ removed by hand, so the tests cover an older coreslot.
 
 ## Looking at the UI
 
-A debug build of the app takes two flags that read the fixtures above; release builds have neither.
+A debug build of the app takes the flags below; release builds have none of them.
 The fixtures are found from the executable up to `Package.swift`, or named with
 `--fixtures-dir DIR`.
 

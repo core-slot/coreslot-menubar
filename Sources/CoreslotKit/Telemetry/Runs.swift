@@ -56,6 +56,7 @@ public struct Runs: Sendable {
 
     public private(set) var attempts: [Key: Attempt] = [:]
     private(set) var byTicket: [String: Key] = [:]
+    private var byHold: [String: Key] = [:]
     /// In time order.
     public private(set) var heads: [Head] = []
 
@@ -78,8 +79,9 @@ public struct Runs: Sendable {
                 let head = Head(timeNS: e.timeNS, reason: w.reason, key: key)
                 heads.insert(head, at: heads.lastIndex { $0.timeNS <= e.timeNS }.map { $0 + 1 } ?? 0)
             }
-        case .admitted:
+        case .admitted(let hold):
             a.admittedNS = e.timeNS
+            if let hold { byHold[hold] = key }
         case .ended(let d):
             a.end = End(event: "ended", timeNS: e.timeNS)
             (a.stoppedBy, a.failOpen, a.signal, a.record) = (d.stoppedBy, d.failOpen, d.signal, d.record)
@@ -93,6 +95,7 @@ public struct Runs: Sendable {
     public mutating func prune(endedBefore date: Date) {
         attempts = attempts.filter { $0.value.end.map { $0.timeNS >= date.nanosecondsSince1970 } ?? true }
         byTicket = byTicket.filter { attempts[$0.value] != nil }
+        byHold = byHold.filter { attempts[$0.value] != nil }
         heads.removeAll { $0.timeNS < date.nanosecondsSince1970 - Self.headLineNS }
     }
 
@@ -115,6 +118,9 @@ public struct Runs: Sendable {
     public func waiting(ticketName: String) -> Attempt? {
         byTicket[ticketName].flatMap { attempts[$0] }
     }
+
+    /// The attempt whose `admitted` line names this hold.
+    public func running(holdName: String) -> Attempt? { byHold[holdName].flatMap { attempts[$0] } }
 }
 
 /// Whether the local record looks on, from the app's own clock: it never reads `config.toml`.
