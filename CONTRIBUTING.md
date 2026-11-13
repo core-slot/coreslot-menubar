@@ -24,6 +24,20 @@ Xcode 26 or later (Swift 6.2 or later), on macOS 26 or later.
 swift build -c release
 ```
 
+To get the app as a bundle, signed ad hoc for your own Mac:
+
+```sh
+scripts/bundle.sh --ad-hoc
+codesign --verify --strict --deep build/coreslot.app
+```
+
+`scripts/bundle.sh` builds the release executable for Apple silicon and assembles
+`build/coreslot.app`: the executable, `Resources/Info.plist` with the version keys, and an icon
+drawn from the menu bar glyph. It signs the bundle with the hardened runtime and verifies the
+signature. `--version X.Y.Z` sets `CFBundleShortVersionString` and `CFBundleVersion` (0.0.0 by
+default); a pre-release suffix such as `-rc1` is left out of both, since Apple requires integers
+there. Launch at login is offered only once the app runs from `/Applications`.
+
 ## Test
 
 ```sh
@@ -109,3 +123,31 @@ in the same throwaway `CORESLOT_STATE_DIR`:
 ```sh
 coreslot-menubar --measure closed:600,popover:300,timeline:300
 ```
+
+## Releasing
+
+Releases are signed with the owner's Developer ID and notarised by Apple on the release Mac, not in
+CI. That Mac holds a signing keychain, `~/Library/Keychains/coreslot-signing.keychain-db`, with the
+Developer ID Application identity and the notary profile `coreslot-notary`; every `codesign` and
+`notarytool` call names that keychain. It has no lock timeout, and the owner unlocks it once after
+each reboot:
+
+```sh
+security unlock-keychain ~/Library/Keychains/coreslot-signing.keychain-db
+```
+
+Then, from a clean checkout with the release tag at `HEAD`:
+
+```sh
+git tag -a v0.1.0 -m "coreslot-menubar 0.1.0"
+scripts/release.sh 0.1.0
+```
+
+`scripts/release.sh` refuses a dirty tree, or a version whose tag `vVERSION` is not at `HEAD`. It
+runs `scripts/bundle.sh` with the Developer ID identity, zips the app, submits the zip to the notary
+service and waits, staples the ticket to the app, zips it again as
+`build/coreslot-menubar-VERSION.zip`, checks it with `spctl --assess`, and prints the zip's sha256
+for the cask. A locked keychain stops it before anything is signed, with one sentence asking for the
+unlock above. It pushes nothing and publishes nothing: pushing the tag, the GitHub release with the
+zip and the cask's new `version` and `sha256` in
+[core-slot/homebrew-tap](https://github.com/core-slot/homebrew-tap) are separate steps.
