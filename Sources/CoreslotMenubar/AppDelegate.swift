@@ -4,6 +4,7 @@ import CoreslotKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store(feed: AppDelegate.feed())
+    let loginItem = LoginItem()
     /// Set by the menu bar label, the one view that lives as long as the app.
     var openTimeline: (() -> Void)?
 
@@ -20,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         store.start()
+        #if DEBUG
+        Present.measureIfAsked(store: store)
+        #endif
     }
 
     /// Opening the app from Finder or Spotlight while it runs: the menu bar extra may be hidden.

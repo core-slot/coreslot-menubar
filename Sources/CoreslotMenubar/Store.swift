@@ -7,7 +7,8 @@ enum Surface: Hashable { case popover, timeline }
 
 /// Where readings come from: the `coreslot` found on this machine, or, in a debug build, a fixture.
 struct Feed: Sendable {
-    let locate: @Sendable () async -> CoreslotBinary?
+    /// The `coreslot` to use: the one chosen in Settings, when given, alone; else the one found.
+    let locate: @Sendable (_ chosen: URL?) async -> CoreslotBinary?
     let runner: Runner
     /// Read the record here instead of at the document's `state_dir`.
     var stateDir: URL? = nil
@@ -17,15 +18,18 @@ struct Feed: Sendable {
     var inspector: any ProcessInspector = DarwinProcessInspector()
     /// Sends a signal; 0 or the errno.
     var signal: @Sendable (pid_t, Int32) -> Int32 = { kill($0, $1) == 0 ? 0 : errno }
+    /// The choices made in Settings are kept in the app's defaults; a fixture keeps none.
+    var keepsChoices = false
 
     static let live = Feed(
-        locate: {
+        locate: { chosen in
             let path = ProcessInfo.processInfo.environment["PATH"]
-            guard let url = Locate.find(override: nil, directories: Locate.standardDirectories, path: path)
-            else { return nil }
+            let found = chosen.map { Locate.find(override: $0, directories: [], path: nil) }
+                ?? Locate.find(override: nil, directories: Locate.standardDirectories, path: path)
+            guard let url = found else { return nil }
             return await CoreslotBinary.probe(url, environment: nil)
         },
-        runner: .process)
+        runner: .process, keepsChoices: true)
 }
 
 /// The one store the views lay out. `CoreslotKit` decides; this only keeps what it says.
@@ -44,6 +48,11 @@ final class Store {
     private(set) var cancelRequested: Set<String> = []
     /// Holds whose process the app could not read: no stop button, and the quiet line says so.
     private(set) var unchecked: Set<String> = []
+    /// Chosen in Settings: another `coreslot` than the one found.
+    private(set) var chosenBinary: URL?
+    /// Chosen in Settings, for development: a state directory of its own, passed to every
+    /// `coreslot` the app runs as `CORESLOT_STATE_DIR`.
+    private(set) var chosenStateDir: URL?
 
     @ObservationIgnored let feed: Feed
     @ObservationIgnored private let reader = RecordReader()
@@ -56,8 +65,47 @@ final class Store {
     @ObservationIgnored private var reportTask: Task<Void, Never>?
     /// One confirmation at a time.
     @ObservationIgnored private var acting = false
+    /// Counts the restarts a new choice in Settings makes; what an older loop brings is dropped.
+    @ObservationIgnored private var generation = 0
 
-    init(feed: Feed) { self.feed = feed }
+    private static let binaryKey = "coreslot", stateDirKey = "stateDirectory"
+
+    init(feed: Feed) {
+        self.feed = feed
+        chosenBinary = defaults?.url(forKey: Self.binaryKey)
+        chosenStateDir = defaults?.url(forKey: Self.stateDirKey)
+    }
+
+    private var defaults: UserDefaults? { feed.keepsChoices ? .standard : nil }
+
+    /// The feed's runner, with the chosen state directory laid over each run's environment.
+    private var runner: Runner {
+        guard let dir = chosenStateDir else { return feed.runner }
+        let (base, extra) = (feed.runner, ["CORESLOT_STATE_DIR": dir.path])
+        return Runner { await base.run($0, $1, environment: ($2 ?? [:]).merging(extra) { $1 }, timeout: $3) }
+    }
+
+    /// Another `coreslot`, or nil for the one found; the app starts over with it.
+    func choose(binary url: URL?) {
+        chosenBinary = url
+        defaults?.set(url, forKey: Self.binaryKey)
+        restart()
+    }
+
+    /// Another state directory, or nil for coreslot's own; the app starts over with it.
+    func choose(stateDir url: URL?) {
+        chosenStateDir = url
+        defaults?.set(url, forKey: Self.stateDirKey)
+        restart()
+    }
+
+    private func restart() {
+        generation += 1
+        loop?.cancel()
+        (loop, source, binary, report, reportAt, reportTask) = (nil, nil, nil, nil, nil, nil)
+        (lastSample, holdLiveSince) = (nil, nil)
+        start()
+    }
 
     var now: Date { feed.clock() }
 
@@ -71,7 +119,8 @@ final class Store {
 
     func start() {
         guard loop == nil else { return }
-        loop = Task { await run() }
+        let generation = generation
+        loop = Task { await run(generation) }
     }
 
     func setVisible(_ surface: Surface, _ on: Bool) {
@@ -95,7 +144,7 @@ final class Store {
         Task {
             defer { acting = false }
             guard Confirm.ask(AlertText.cancel(ticket)) else { return }
-            switch await cancel(ticketID: ticket.id, using: binary, runner: feed.runner) {
+            switch await cancel(ticketID: ticket.id, using: binary, runner: runner) {
             case .requested: cancelRequested.insert(ticket.id)
             case .refused(let now):
                 await ingest(now)
@@ -109,7 +158,7 @@ final class Store {
     func askToStop(_ hold: StatusDocument.Hold) {
         guard let binary, !acting else { return }
         acting = true
-        let (runner, inspector) = (feed.runner, feed.inspector)
+        let (runner, inspector) = (runner, feed.inspector)
         Task {
             defer { acting = false }
             let shown = await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector)
@@ -133,28 +182,30 @@ final class Store {
         if let words = AlertText.refusal(c) { Confirm.tell(words) }
     }
 
-    private func run() async {
+    private func run(_ generation: Int) async {
         while binary == nil && !Task.isCancelled {
-            if let b = await feed.locate() {
+            if let b = await feed.locate(chosenBinary) {
+                guard generation == self.generation else { return }
                 binary = b
             } else {
+                guard generation == self.generation else { return }
                 await ingest(.problem(.notFound))
                 try? await Task.sleep(for: .seconds(10))
             }
         }
         guard let binary else { return }
-        let source = StatusSource(binary: binary, environment: nil, runner: feed.runner)
+        let source = StatusSource(binary: binary, environment: nil, runner: runner)
         self.source = source
         await source.setInterval(visible.isEmpty ? .seconds(10) : .seconds(2))
         refreshReport()
-        for await r in await source.readings() { await ingest(r) }
+        for await r in await source.readings() where generation == self.generation { await ingest(r) }
     }
 
     /// One reading, the record and the report, outside the poller: a fixture shown once.
     func readOnce() async {
-        guard let b = await feed.locate() else { return await ingest(.problem(.notFound)) }
+        guard let b = await feed.locate(chosenBinary) else { return await ingest(.problem(.notFound)) }
         binary = b
-        let r = await feed.runner.run(b.url, ["status", "--json"], environment: nil, timeout: .seconds(5))
+        let r = await runner.run(b.url, ["status", "--json"], environment: nil, timeout: .seconds(5))
         await ingest(interpret(r, binary: b))
         refreshReport()
         await reportTask?.value
@@ -197,9 +248,10 @@ final class Store {
     private func refreshReport() {
         guard let binary, reportTask == nil, reportAt.map({ feed.clock().timeIntervalSince($0) >= 60 }) ?? true
         else { return }
-        let (runner, url) = (feed.runner, binary.url)
+        let (runner, url, generation) = (runner, binary.url, generation)
         reportTask = Task {
             let r = await runner.run(url, ["report", "--days", "1", "--json"], environment: nil, timeout: .seconds(10))
+            guard generation == self.generation else { return }
             if r.exitCode == 0, !r.timedOut, let decoded = try? JSONDecoder().decode(Report.self, from: r.stdout) {
                 report = decoded
             }

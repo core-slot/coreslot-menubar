@@ -32,7 +32,7 @@ struct CoreslotApp: App {
         .defaultLaunchBehavior(.suppressed)
 
         Settings {
-            SettingsPlaceholder()
+            SettingsView(store: delegate.store, loginItem: delegate.loginItem)
         }
     }
 }
@@ -46,13 +46,5 @@ private struct MenuBarLabel: View {
         Image(nsImage: MenuBarIcon.image(for: store.icon))
             .accessibilityLabel(MenuBarIcon.words(store.icon))
             .onAppear { delegate.openTimeline = { openWindow(id: "timeline") } }
-    }
-}
-
-struct SettingsPlaceholder: View {
-    var body: some View {
-        Text("No settings yet.")
-            .foregroundStyle(.secondary)
-            .frame(width: 360, height: 120)
     }
 }

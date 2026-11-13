@@ -85,10 +85,27 @@ reading, `night`, written under the temporary directory, and the same with the r
 `record-off-night`; and `icons`, every state of the menu bar icon. `alert-stop`,
 `alert-cancel` and `alert-refused` show the stop confirmation (with a command line holding hidden
 characters), the cancel confirmation and the refusal over the queue; an alert draws only while it
-runs, so name one per launch, and `all` leaves them out. `all` adds the timeline at each range over
-the queue and over `night`, and over `record-off` and `record-off-night`.
+runs, so name one per launch, and `all` leaves them out. `settings` shows Settings over the queue
+with launch at login as that copy of the app finds it, which outside `/Applications` is "not
+offered"; `settings-on`, `settings-approval` and `settings-off` show the service's status as
+enabled, waiting for approval and not registered, and change nothing. `all` adds the timeline at
+each range over the queue and over `night`, and over `record-off` and `record-off-night`, and the
+four Settings variants.
 
 Two more debug flags drive a stop through the app's own path against a real `coreslot`, without a
 click: `--answer yes|no` answers every confirmation unseen and prints its text to stderr, and
 `--ask-stop LABEL` asks once to stop the first stoppable hold of that label. Use them only with
 `CORESLOT_STATE_DIR` set to a throwaway directory, for both the `coreslot run` and the app.
+
+`--measure PHASE:SECONDS[,PHASE:SECONDS…]` runs the live app through phases and quits: `closed`
+opens nothing, `popover` opens the popover's content and `timeline` the timeline window at 24 h, each
+in an ordinary window above the others, in place of a person who opened it. At each phase's end it
+prints to stderr the CPU time of the app and of the `coreslot` runs it reaped, from `getrusage`, as
+a share of one core; read the memory with `footprint -p <pid>` meanwhile. To measure the optimised
+code with this flag, build `swift build -c release -Xswiftc -DDEBUG --build-path <elsewhere>`; the
+release build itself has no debug flag. For example, with a few `coreslot run`s holding and waiting
+in the same throwaway `CORESLOT_STATE_DIR`:
+
+```sh
+coreslot-menubar --measure closed:600,popover:300,timeline:300
+```

@@ -24,7 +24,9 @@ reports, or is marked as a forecast.
   `status --json` gives.
 
 The app finds `coreslot` in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` and then on its
-own `PATH`, and can be pointed at another binary.
+own `PATH`. In Settings it can be pointed at another binary, and, for development, at another state
+directory, which it passes to coreslot as `CORESLOT_STATE_DIR`. Launch at login is a setting, off
+by default, offered once the app runs from `/Applications`.
 
 ## Install
 

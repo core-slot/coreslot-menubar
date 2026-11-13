@@ -11,7 +11,10 @@ import SwiftUI
 /// `present-window <kind> <name> <window number>` per window, then `present-ready`. `--fixtures-dir DIR` names the fixtures; by default they are found from the
 /// executable up to `Package.swift`. `--answer yes|no` answers every confirmation unseen and
 /// prints its text to stderr; with `--ask-stop LABEL` the first stoppable hold of that label is
-/// asked to stop once: together they drive a stop through the app's own path.
+/// asked to stop once: together they drive a stop through the app's own path. `settings` shows
+/// Settings over the queue with launch at login as this copy finds it, and `settings-on`,
+/// `settings-approval` and `settings-off` with the service's status shown as that. `--measure`
+/// runs the live app through phases and prints what each cost (see `measureIfAsked`).
 @MainActor
 enum Present {
     struct Variant: Sendable {
@@ -87,6 +90,11 @@ enum Present {
     /// modally, so one may be named per launch, and it is shown after every other window.
     static let alerts = ["alert-stop", "alert-cancel", "alert-refused"]
 
+    /// Settings over the queue; nil is launch at login as this copy finds it.
+    static let settings: [String: LoginItem.State?] = [
+        "settings": nil, "settings-on": .enabled, "settings-approval": .requiresApproval, "settings-off": .notRegistered,
+    ]
+
     static let answer: Bool? = switch value("--answer", CommandLine.arguments) {
     case nil: nil
     case "yes": true
@@ -103,10 +111,11 @@ enum Present {
     static func runIfAsked(_ args: [String]) -> Bool {
         guard let list = value("--present", args) else { return false }
         let fixtures = fixturesDirectory(args)
-        let chosen = list == "all" ? variants.map(\.name) + ["icons"] + timelines : list.split(separator: ",").map(String.init)
+        let chosen = list == "all" ? variants.map(\.name) + ["icons"] + timelines + settings.keys.sorted() : list.split(separator: ",").map(String.init)
         if chosen.filter(alerts.contains).count > 1 { fail("name one of \(alerts.joined(separator: ", ")) per launch") }
-        for name in chosen where name != "icons" && !alerts.contains(name) && timeline(name) == nil && !variants.contains(where: { $0.name == name }) {
-            fail("no variant \(name); the variants are \(variants.map(\.name).joined(separator: ", ")), icons, \(alerts.joined(separator: ", ")), timeline[-15m|-1h|-6h|-24h][:VARIANT] and all")
+        for name in chosen where name != "icons" && !alerts.contains(name) && timeline(name) == nil && settings[name] == nil
+            && !variants.contains(where: { $0.name == name }) {
+            fail("no variant \(name); the variants are \(variants.map(\.name).joined(separator: ", ")), icons, \(alerts.joined(separator: ", ")), \(settings.keys.sorted().joined(separator: ", ")), timeline[-15m|-1h|-6h|-24h][:VARIANT] and all")
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
@@ -123,6 +132,12 @@ enum Present {
                     continue
                 }
                 if alerts.contains(name) { continue }
+                if let state = settings[name] {
+                    let store = Store(feed: feed(variants.first { $0.name == "queue" }!, fixtures: fixtures, live: false))
+                    await store.readOnce()
+                    show(SettingsView(store: store, loginItem: state.map { LoginItem(showing: $0) } ?? LoginItem()), kind: "settings", name: name, at: i)
+                    continue
+                }
                 if let (range, variant, back) = timeline(name) {
                     let store = Store(feed: feed(variant, fixtures: fixtures, live: false))
                     await store.readOnce()
@@ -151,6 +166,68 @@ enum Present {
             fail("no variant \(name); the variants are \(variants.map(\.name).joined(separator: ", "))")
         }
         return feed(v, fixtures: fixturesDirectory(args), live: true)
+    }
+
+    /// `--measure PHASE:SECONDS[,PHASE:SECONDS…]`, each PHASE `closed`, `popover` or `timeline`:
+    /// the live app runs the phases in turn, then quits. For `popover` the popover's content, and
+    /// for `timeline` the timeline window at 24 h, is open in an ordinary window above the others,
+    /// in place of a person who opened it; `closed` opens nothing. Prints `measure pid <pid>`,
+    /// `measure <phase> begins`, and at each phase's end its wall time and the CPU time of the app
+    /// and of the `coreslot` runs it reaped, from `getrusage`, each as a share of one core.
+    static func measureIfAsked(store: Store) {
+        guard let list = value("--measure", CommandLine.arguments) else { return }
+        let phases = list.split(separator: ",").map { item -> (String, Int) in
+            let p = item.split(separator: ":")
+            guard p.count == 2, ["closed", "popover", "timeline"].contains(String(p[0])), let s = Int(p[1]), s > 0 else {
+                fail("--measure takes PHASE:SECONDS[,PHASE:SECONDS…], each PHASE closed, popover or timeline")
+            }
+            return (String(p[0]), s)
+        }
+        log("measure pid \(getpid())")
+        Task {
+            for (phase, seconds) in phases {
+                let window: NSWindow? = switch phase {
+                case "popover":
+                    measured(PopoverView(store: store, openTimeline: {}).background(WindowVisibility { store.setVisible(.popover, $0) }))
+                case "timeline":
+                    measured(TimelineView(store: store, range: .day).frame(width: 980, height: 760)
+                        .background(WindowVisibility { store.setVisible(.timeline, $0) }))
+                default: nil
+                }
+                let (me, children, from) = (cpu(RUSAGE_SELF), cpu(RUSAGE_CHILDREN), ContinuousClock.now)
+                log("measure \(phase) begins")
+                try? await Task.sleep(for: .seconds(seconds))
+                let d = (ContinuousClock.now - from).components
+                let wall = Double(d.seconds) + Double(d.attoseconds) / 1e18
+                let (a, c) = (cpu(RUSAGE_SELF) - me, cpu(RUSAGE_CHILDREN) - children)
+                log(String(format: "measure %@ %.1f s: app %.2f s cpu, %.3f %% of a core; children %.2f s cpu, %.3f %% of a core",
+                           phase, wall, a, 100 * a / wall, c, 100 * c / wall))
+                window?.close()
+            }
+            NSApp.terminate(nil)
+        }
+    }
+
+    private static func measured(_ view: some View) -> NSWindow {
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.contentView = host
+        window.isReleasedWhenClosed = false
+        // Above the others, as the menu bar's panel is, so it stays on screen.
+        window.level = .floating
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        window.setFrameTopLeftPoint(NSPoint(x: screen.minX + 40, y: screen.maxY - 40))
+        window.orderFrontRegardless()
+        return window
+    }
+
+    /// User and system CPU seconds of `who`.
+    private static func cpu(_ who: Int32) -> Double {
+        var u = rusage()
+        getrusage(who, &u)
+        let s = { (t: timeval) in Double(t.tv_sec) + Double(t.tv_usec) / 1e6 }
+        return s(u.ru_utime) + s(u.ru_stime)
     }
 
     /// What `all` shows of the timeline: each range over the queue, and the record looking off.
@@ -252,7 +329,7 @@ enum Present {
         } else {
             clock = { then }
         }
-        let locate: @Sendable () async -> CoreslotBinary? = { found ? binary : nil }
+        let locate: @Sendable (URL?) async -> CoreslotBinary? = { _ in found ? binary : nil }
         return Feed(
             locate: locate, runner: runner, stateDir: telemetry, clock: clock, record: v.record,
             inspector: FixtureInspector(readable: v.readable), signal: { _, _ in EPERM })
