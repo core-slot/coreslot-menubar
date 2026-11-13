@@ -7,7 +7,7 @@ public enum Notice: Equatable, Sendable {
 
 /// Why there is no document to show.
 public enum Problem: Equatable, Sendable {
-    case notFound, stateUnreadable(stderr: String), failed(exitCode: Int32), malformed, timedOut
+    case notFound, stateUnreadable, failed(exitCode: Int32), malformed, timedOut
 }
 
 public enum StatusReading: Sendable, Equatable {
@@ -30,7 +30,7 @@ public func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading {
         if !binary.version.isDevelopment, binary.version < .minimum { return only(1) }
         return .problem(.malformed)
     }
-    if code == 3 { return .problem(.stateUnreadable(stderr: String(decoding: r.stderr, as: UTF8.self))) }
+    if code == 3 { return .problem(.stateUnreadable) }
     return .problem(.failed(exitCode: code))
 }
 

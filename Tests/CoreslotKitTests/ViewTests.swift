@@ -34,7 +34,7 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
             #expect(IconState(.document(queue, [n])) == .waiting(fill: 0), "\(n)")
         }
         #expect(IconState(.document(StatusDocument.schemaOnly(2), [.schema(2)])) == .unavailable)
-        for p: Problem in [.notFound, .stateUnreadable(stderr: ""), .failed(exitCode: 70), .malformed, .timedOut] {
+        for p: Problem in [.notFound, .stateUnreadable, .failed(exitCode: 70), .malformed, .timedOut] {
             #expect(IconState(.problem(p)) == .unavailable, "\(p)")
         }
     }

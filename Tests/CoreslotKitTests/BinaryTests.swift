@@ -95,44 +95,47 @@ func temporaryDirectory() throws -> URL {
 }
 
 @Suite struct RunnerTests {
-    // Mutation: send no SIGTERM; sleep then lives until the SIGKILL at 1.5 s, red.
+    // Mutation: send no SIGTERM; sleep then lives until the SIGKILL at 2 s, red.
     // Mutation: send no SIGKILL; the case that ignores SIGTERM runs its 30 s, red.
-    // Mutation: wait for the pipes' EOF however long (drop the give-up); the leftover sleep, which
-    // prints its pid and holds them, keeps the third case 12 s, red.
+    // Mutation: wait for the pipe's EOF however long (drop the give-up); the leftover sleep, which
+    // prints its pid and holds the pipe, keeps the third case 12 s, red.
+    // Mutation: give up only on a child that was signalled (the rule before this one); the child
+    // that exits at once leaves its sleep holding the pipe for 8 s, red.
     @Test(arguments: [
-        (["/bin/sleep", "30"], 1250),
-        (["/bin/sh", "-c", "trap '' TERM; exec /bin/sleep 30"], 2500),
-        (["/bin/sh", "-c", "/bin/sleep 12 & echo $!; exec /bin/sleep 30"], 2500),
+        (["/bin/sleep", "30"], true, 1750),
+        (["/bin/sh", "-c", "trap '' TERM; exec /bin/sleep 30"], true, 3000),
+        (["/bin/sh", "-c", "/bin/sleep 12 & echo $!; exec /bin/sleep 30"], true, 3000),
+        (["/bin/sh", "-c", "/bin/sleep 8 & echo $!; exit 0"], false, 3000),
     ])
-    func aTimeoutEndsAndReapsTheChild(_ command: [String], withinMS: Int) async throws {
+    func aTimeoutEndsTheRunAndReapsTheChild(_ command: [String], timedOut: Bool, withinMS: Int) async throws {
         let pid = Mutex<pid_t>(0)
         let clock = ContinuousClock()
         let started = clock.now
-        let r = await Runner.spawn(URL(filePath: command[0]), Array(command.dropFirst()), nil, .milliseconds(500)) { p in
+        let r = await Runner.spawn(URL(filePath: command[0]), Array(command.dropFirst()), nil, .seconds(1)) { p in
             pid.withLock { $0 = p }
         }
         let took = clock.now - started
         if let leftover = pid_t(String(decoding: r.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) {
             kill(leftover, SIGKILL)
         }
-        #expect(r.timedOut)
+        #expect(r.timedOut == timedOut)
         #expect(took < .milliseconds(withinMS), "took \(took)")
         let child = pid.withLock { $0 }
         #expect(child > 0)
         // No process left at that pid, not even a zombie: kill(2) finds a zombie.
-        // Mutation: replace the waitpid loop with `return 0`; the zombie stays, red.
+        // Mutation: drop the waitpid loop; the zombie stays, red.
         errno = 0
         #expect(kill(child, 0) == -1 && errno == ESRCH)
     }
 
-    // Mutation: read stderr only after stdout's EOF; the writer blocks on a full pipe and it times out, red.
     // Mutation: drop the 16 MiB bound; red.
-    @Test func bothOutputsAreReadAtOnceAndBounded() async {
-        let script = "/usr/bin/head -c 20000000 /dev/zero >&2 & /usr/bin/head -c 20000000 /dev/zero; wait; exit 3"
+    // Mutation: dup2 the stdout pipe onto stderr too; stdout starts with "err", red.
+    @Test func stdoutIsBoundedAndStderrIsNotRead() async {
+        let script = "echo err >&2; /usr/bin/head -c 20000000 /dev/zero; exit 3"
         let r = await Runner.process.run(URL(filePath: "/bin/sh"), ["-c", script], environment: nil, timeout: .seconds(20))
         #expect(!r.timedOut)
         #expect(r.exitCode == 3)
-        #expect(r.stdout.count == 16 << 20 && r.stderr.count == 16 << 20)
+        #expect(r.stdout.count == 16 << 20 && r.stdout.first == 0)
     }
 
     // Mutation: ignore `environment` (pass the app's own alone); red.
@@ -144,7 +147,7 @@ func temporaryDirectory() throws -> URL {
         #expect(r.exitCode == 0)
     }
 
-    // Mutation: return the raw wait status instead of 128 + the signal; red.
+    // Mutation: return `si_status` alone for a signal, not 128 + it; red.
     @Test func aSignalIs128PlusItsNumber() async {
         let r = await Runner.process.run(URL(filePath: "/bin/sh"), ["-c", "kill -TERM $$"], environment: nil, timeout: .seconds(5))
         #expect(r.exitCode == 128 + SIGTERM && !r.timedOut)

@@ -41,8 +41,7 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
 
     // Mutation: return .failed for every exit with no document; red.
     @Test func exit3WithNothingIsAStateError() {
-        let r = RunResult(exitCode: 3, stdout: Data("\n".utf8), stderr: Data("coreslot: holds/ is not a directory\n".utf8))
-        #expect(interpret(r, binary: release) == .problem(.stateUnreadable(stderr: "coreslot: holds/ is not a directory\n")))
+        #expect(interpret(RunResult(exitCode: 3, stdout: Data("\n".utf8)), binary: release) == .problem(.stateUnreadable))
     }
 
     // Mutation: map every exit with no document to stateUnreadable; red.
