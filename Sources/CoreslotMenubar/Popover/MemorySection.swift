@@ -58,10 +58,10 @@ private struct MemoryBarView: View {
                 case .reserve:
                     Palette.hatch(&context, rect, .secondary)
                 case .setAside:
-                    context.fill(Path(rect), with: .color(Palette.fill(s.kind)))
-                    context.stroke(Path(rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(Palette.fill(s.kind).opacity(1)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    context.fill(Path(rect), with: Palette.fill(s.kind))
+                    context.stroke(Path(rect.insetBy(dx: 0.5, dy: 0.5)), with: Palette.fill(s.kind).opacity(1), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                 default:
-                    context.fill(Path(rect), with: .color(Palette.fill(s.kind)))
+                    context.fill(Path(rect), with: Palette.fill(s.kind))
                 }
             }
         }
@@ -81,10 +81,10 @@ private struct Swatch: View {
             } else if case .holds(let colors) = kind, colors.count > 1 {
                 let shown = colors.prefix(4), w = size.width / CGFloat(shown.count)
                 for (i, c) in shown.enumerated() {
-                    context.fill(Path(CGRect(x: CGFloat(i) * w, y: 0, width: w, height: size.height)), with: .color(Palette.label(c)))
+                    context.fill(Path(CGRect(x: CGFloat(i) * w, y: 0, width: w, height: size.height)), with: Palette.label(c))
                 }
             } else {
-                context.fill(Path(rect), with: .color(Palette.fill(kind)))
+                context.fill(Path(rect), with: Palette.fill(kind))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 2))

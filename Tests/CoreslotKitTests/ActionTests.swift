@@ -161,7 +161,7 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         #expect(sendStop(check, inspector: inspector, signal: { _, _ in ESRCH }) == .failed(ESRCH))
     }
 
-    // Mutation: drop the range check in `canInspect`; pid 0 is asked and reads as checked, red.
+    // Mutation: drop the range check in `pid(of:)`; pid 0 is asked and reads as checked, red.
     @Test func aHoldIsInspectableOnlyWhenItsProcessReads() throws {
         let hold = try #require(StatusDocument.decode(try status()).holds.first { $0.name == longName })
         let zero = try #require(StatusDocument.decode(try status { h in for i in h.indices { h[i]["pid"] = 0 } }).holds.first)
@@ -210,8 +210,7 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         #expect(AlertText.commandLine(["a", "b"]) == "a b")
     }
 
-    // `.refused` is also what a `coreslot run` started before coreslot was upgraded gets: it runs
-    // the old file, not the app's.
+    // `.refused` is also what a `coreslot run` started before an upgrade gets: it runs the old file.
     @Test func theRefusalSentences() {
         #expect(AlertText.refusal(.refused("x")) == "This process could not be confirmed as the command coreslot reports; nothing was sent.")
         #expect(AlertText.refusal(.gone) != nil && AlertText.refusal(.changed) != nil)
@@ -279,10 +278,7 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         // as it starts, outside the system, and a path relinked while it starts kills it too.
         try Data(#"#include <unistd.h>\#nint main(void) { write(1, "r", 1); sleep(30); return 0; }"#.utf8).write(to: source)
         try Data("other".utf8).write(to: other)
-        let cc = Process()
-        (cc.executableURL, cc.arguments) = (URL(filePath: "/usr/bin/cc"), ["-o", server.path, source.path])
-        try cc.run()
-        cc.waitUntilExit()
+        try Process.run(URL(filePath: "/usr/bin/cc"), arguments: ["-o", server.path, source.path]).waitUntilExit()
         let (p, out) = (Process(), Pipe())
         (p.executableURL, p.standardOutput) = (server, out)
         try p.run()
@@ -295,15 +291,14 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
         #expect(DarwinProcessInspector().facts(p.processIdentifier)?.executable == running)
     }
 
-    // The S3 case. Mutation: skip every NUL after the exec path; the empty `argv[0]` is lost and the
-    // environment's first string reads as the last argument, red.
+    // The S3 case: perl's own facts until it execs, then none. Mutation: skip every NUL after the exec
+    // path; the empty `argv[0]` is lost and the environment's first string reads as the last argument, red.
     @Test func anEmptyFirstArgumentLeavesTheFactsUnread() async throws {
         let p = Process()
         (p.executableURL, p.arguments, p.environment) = (URL(filePath: "/usr/bin/perl"), ["-e", #"exec {"/bin/sleep"} "", "30""#], ["PROBE_SECRET": "x"])
         try p.run()
         defer { p.terminate(); p.waitUntilExit() }
         var shown: [String] = []
-        // perl's own facts until it execs, then none.
         for _ in 0..<100 {
             guard let f = DarwinProcessInspector().facts(p.processIdentifier) else { break }
             shown += f.arguments

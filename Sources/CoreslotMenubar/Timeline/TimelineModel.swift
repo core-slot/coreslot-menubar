@@ -105,8 +105,10 @@ extension Store {
         let all = runRows(doc, nowNS: nowNS, recordOff: off, fromNS: start).filter { ($0.waitFromNS ?? $0.runFromNS ?? $0.toNS) <= endNS }
         let shown = all.filter { label == nil || $0.rawLabel == label }
         let chart = off ? nil : memoryChart(doc, range: range, startNS: start, endNS: endNS, nowNS: nowNS)
-        // Samples are written only while a command runs, so an idle range holds none.
-        let empty = off || chart?.segments.isEmpty == true ? (looksOff: off, configFile: configFile) : nil
+        // Samples are written only while a command runs, so an idle range holds none. The file is the
+        // one the `coreslot` this app runs reads, in the environment it is run in.
+        let environment = ProcessInfo.processInfo.environment.merging(chosenStateDir.map { ["CORESLOT_STATE_DIR": $0.path] } ?? [:]) { $1 }
+        let empty = off || chart?.segments.isEmpty == true ? (looksOff: off, configFile: Locate.configFile(environment: environment)) : nil
         return TimelineModel(
             startNS: start, viewEndNS: viewEnd, endNS: endNS, nowNS: nowNS,
             totals: totals(doc, rows: shown, chart: chart, startNS: start, viewEndNS: viewEnd, recordOff: off),
@@ -116,7 +118,8 @@ extension Store {
             labels: labelColors.sorted { $0.value < $1.value }.map(\.key))
     }
 
-    private func color(_ label: String) -> Int { labelColors[label] ?? 0 }
+    /// A label's colour, by the order the app first saw it.
+    func color(_ label: String) -> Int { labelColors[label] ?? 0 }
 
     // MARK: rows
 

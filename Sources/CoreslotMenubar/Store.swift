@@ -10,11 +10,16 @@ struct Feed: Sendable {
     /// The `coreslot` to use: the one chosen in Settings, when given, alone; else the one found.
     let locate: @Sendable (_ chosen: URL?) async -> CoreslotBinary?
     let runner: Runner
-    /// Read the record here instead of at the document's `state_dir`.
+    #if DEBUG
+    /// Fixtures only: the record read here instead of at the document's `state_dir`, the
+    /// fixture's clock, and the record's state as the variant names it.
     var stateDir: URL? = nil
     var clock: @Sendable () -> Date = { Date() }
-    /// Fixtures only: the record's state as the variant names it, not as the app's clock finds it.
     var record: RecordState? = nil
+    #else
+    let stateDir: URL? = nil, record: RecordState? = nil
+    func clock() -> Date { Date() }
+    #endif
     var inspector: any ProcessInspector = DarwinProcessInspector()
     /// Sends a signal; 0 or the errno.
     var signal: @Sendable (pid_t, Int32) -> Int32 = { kill($0, $1) == 0 ? 0 : errno }
@@ -111,11 +116,6 @@ final class Store {
 
     var now: Date { feed.clock() }
 
-    /// The configuration file of the `coreslot` this app runs, with the environment it runs it in.
-    var configFile: String {
-        Locate.configFile(environment: ProcessInfo.processInfo.environment.merging(chosenStateDir.map { ["CORESLOT_STATE_DIR": $0.path] } ?? [:]) { $1 })
-    }
-
     var icon: IconState { reading.map(IconState.init) ?? .idle }
 
     /// The document; a reading of notices alone has none, and feeds nothing.
@@ -133,7 +133,7 @@ final class Store {
     func setVisible(_ surface: Surface, _ on: Bool) {
         if on { visible.insert(surface) } else { visible.remove(surface) }
         #if DEBUG
-        FileHandle.standardError.write(Data("visible \(surface) \(on)\n".utf8))
+        Present.log("visible \(surface) \(on)")
         #endif
         let fast = !visible.isEmpty
         if on { refreshReport() }
@@ -175,7 +175,7 @@ final class Store {
             guard case .ready = again else { return tell(stop: again) }
             let outcome = sendStop(again, inspector: inspector, signal: feed.signal)
             #if DEBUG
-            FileHandle.standardError.write(Data("stop \(outcome)\n".utf8))
+            Present.log("stop \(outcome)")
             #endif
             if let words = AlertText.stopOutcome(outcome) { Confirm.tell(words) }
             await source?.readNow()
@@ -184,7 +184,7 @@ final class Store {
 
     private func tell(stop c: StopCheck) {
         #if DEBUG
-        FileHandle.standardError.write(Data("stop \(c)\n".utf8))
+        Present.log("stop \(c)")
         #endif
         if let words = AlertText.refusal(c) { Confirm.tell(words) }
     }
@@ -214,6 +214,7 @@ final class Store {
         }
     }
 
+    #if DEBUG
     /// One reading, the record and the report, outside the poller: a fixture shown once.
     func readOnce() async {
         guard let b = await feed.locate(chosenBinary) else { return await ingest(.problem(.notFound)) }
@@ -223,16 +224,12 @@ final class Store {
         refreshReport()
         await reportTask?.value
     }
+    #endif
 
     func ingest(_ r: StatusReading) async {
         let at = feed.clock()
         (reading, readAt) = (r, at)
         let doc = document
-        if let doc {
-            for label in doc.holds.map(\.label) + doc.tickets.map(\.label) where labelColors[label] == nil {
-                labelColors[label] = labelColors.count
-            }
-        }
         holdLiveSince = doc?.holds.isEmpty == false ? holdLiveSince ?? at : nil
         cancelRequested.formIntersection(doc?.tickets.filter { $0.state != "dead" }.map(\.id) ?? [])
         unchecked = Set((doc?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name))
@@ -240,13 +237,12 @@ final class Store {
         let snapshot = await reader.update(stateDir: dir, doc: doc, at: at)
         if snapshot.newSamples > 0 { lastSample = at }
         record = snapshot
-        for label in snapshot.runs.attempts.values.map(\.label) where labelColors[label] == nil {
-            labelColors[label] = labelColors.count
-        }
+        let labels = (doc?.holds.map(\.label) ?? []) + (doc?.tickets.map(\.label) ?? []) + snapshot.runs.attempts.values.map(\.label)
+        for label in labels where labelColors[label] == nil { labelColors[label] = labelColors.count }
         recordState = feed.record ?? RecordState(now: at, lastSample: lastSample, holdLiveSince: holdLiveSince)
         #if DEBUG
         let summary = doc.map { "holds \($0.holds.count) tickets \($0.tickets.count) attempts \(snapshot.runs.attempts.count)" } ?? "no document"
-        FileHandle.standardError.write(Data("reading \(icon) \(summary) record \(recordState)\n".utf8))
+        Present.log("reading \(icon) \(summary) record \(recordState)")
         #endif
         if !visible.isEmpty { refreshReport() }
         #if DEBUG

@@ -40,8 +40,7 @@ public func prepareStop(
     }
     guard let hold = doc.holds.first(where: { $0.name == holdName }) else { return .gone }
     guard hold.stoppable == true else { return .changed }
-    guard (2...Int64(Int32.max)).contains(hold.pid) else { return .refused("pid \(hold.pid) is out of range") }
-    let pid = pid_t(hold.pid)
+    guard let pid = pid(of: hold) else { return .refused("pid \(hold.pid) is out of range") }
     guard let facts = inspector.facts(pid) else { return .refused("the process could not be read") }
     // A `coreslot run` started before coreslot was upgraded runs the old file: refused too.
     guard facts.executable == FileID(binary.url) else {
@@ -56,8 +55,11 @@ public func prepareStop(
 /// Whether the hold's process can be read at all; status has no key for that, and when it cannot,
 /// the hold's quiet line says so.
 public func canInspect(_ hold: StatusDocument.Hold, inspector: any ProcessInspector) -> Bool {
-    (2...Int64(Int32.max)).contains(hold.pid) && inspector.facts(pid_t(hold.pid)) != nil
+    pid(of: hold).map { inspector.facts($0) != nil } ?? false
 }
+
+/// The hold's pid, when it can name a process other than the kernel and launchd.
+private func pid(of hold: StatusDocument.Hold) -> pid_t? { (2...Int64(Int32.max)).contains(hold.pid) ? pid_t(hold.pid) : nil }
 
 /// The check run again after the person confirmed `shown`: it stands only for the same pid with
 /// the same facts, the command line they saw included.

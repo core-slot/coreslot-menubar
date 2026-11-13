@@ -126,8 +126,6 @@ extension Store {
 
     private var nowNS: Int64 { now.nanosecondsSince1970 }
 
-    private func color(_ label: String) -> Int { labelColors[label] ?? 0 }
-
     private func live(_ doc: StatusDocument) -> PopoverModel.Live {
         let off = recordState == .looksOff
         let waiting = doc.tickets.filter { $0.state != "dead" }

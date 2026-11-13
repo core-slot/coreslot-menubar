@@ -188,7 +188,7 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(Words.reason(.init(reason: "behind_ticket"), needMiB: 1, realMemory: false, ageS: 5) == "Waits its turn")
     }
 
-    // Mutation: drop the `restart_` case; a restart's reason has no name, red.
+    // Mutation: drop the `restart_` case of `reason`, whose table the names reuse; a restart's reason has no name, red.
     @Test func theReasonsHaveNamesForTheLegend() {
         let codes = ["room_short", "behind_head", "behind_ticket", "section_busy", "watch_level", "watch_spacing", "restart_calm"]
         #expect(Set(codes.compactMap(Words.reasonName)).count == codes.count)

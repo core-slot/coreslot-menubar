@@ -170,10 +170,10 @@ private struct Sparkline: View {
             var line = Path()
             line.move(to: point(0))
             for i in values.indices.dropFirst() { line.addLine(to: point(i)) }
-            context.stroke(line, with: .color(color), lineWidth: 1.2)
+            context.stroke(line, with: color, lineWidth: 1.2)
             if let peak {
                 let p = point(peak)
-                context.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)), with: .color(color))
+                context.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)), with: color)
             }
         }
         .accessibilityHidden(true)

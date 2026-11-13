@@ -21,7 +21,7 @@ enum Palette {
     /// stroke cut to the rectangle, half a stroke inside it.
     static func hatch(_ sketch: inout Sketcher, _ rect: CGRect, _ color: Color) {
         guard rect.width > 0, rect.height > 0 else { return }
-        sketch.fill(Path(rect), with: .color(color.opacity(0.18)))
+        sketch.fill(Path(rect), with: color.opacity(0.18))
         let r = rect.insetBy(dx: 0.5, dy: 0.5)
         guard r.width > 0, r.height > 0 else { return }
         var lines = Path()
@@ -35,7 +35,7 @@ enum Palette {
             }
             x += 3
         }
-        sketch.stroke(lines, with: .color(color.opacity(0.85)), lineWidth: 1)
+        sketch.stroke(lines, with: color.opacity(0.85), lineWidth: 1)
     }
 }
 
@@ -60,9 +60,6 @@ struct Sketch: View {
 
 /// What a `Sketch` draws: fills, strokes and text, in order.
 struct Sketcher {
-    /// Spelled as a `GraphicsContext` shading is, `.color(_:)`.
-    enum Ink { case color(Color) }
-
     fileprivate enum Item {
         case fill(Path, Color), stroke(Path, Color, StrokeStyle), text(Text, CGPoint)
 
@@ -83,19 +80,13 @@ struct Sketcher {
         return s.items
     }
 
-    mutating func fill(_ path: Path, with ink: Ink) {
-        guard case .color(let c) = ink else { return }
-        items.append(.fill(path, c))
+    mutating func fill(_ path: Path, with color: Color) { items.append(.fill(path, color)) }
+
+    mutating func stroke(_ path: Path, with color: Color, lineWidth: CGFloat = 1) {
+        stroke(path, with: color, style: StrokeStyle(lineWidth: lineWidth))
     }
 
-    mutating func stroke(_ path: Path, with ink: Ink, lineWidth: CGFloat = 1) {
-        stroke(path, with: ink, style: StrokeStyle(lineWidth: lineWidth))
-    }
-
-    mutating func stroke(_ path: Path, with ink: Ink, style: StrokeStyle) {
-        guard case .color(let c) = ink else { return }
-        items.append(.stroke(path, c, style))
-    }
+    mutating func stroke(_ path: Path, with color: Color, style: StrokeStyle) { items.append(.stroke(path, color, style)) }
 
     /// Centred at the point, as `GraphicsContext.draw(_:at:)` places it.
     mutating func draw(_ text: Text, at point: CGPoint) { items.append(.text(text, point)) }
