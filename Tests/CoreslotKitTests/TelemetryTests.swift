@@ -347,6 +347,40 @@ extension JSONLTail {
         #expect(runs.running(holdName: "h3") == nil)
     }
 
+    /// Lines as coreslot 0.8.0 wrote them in a throwaway state directory, trimmed to the keys read:
+    /// a run timed out with `--on-timeout run`, and a pass-through inside its parent's grant.
+    private func event(_ e: String, _ n: Int64, _ extra: String, run: String = "late") throws -> EventLine {
+        try #require(EventLine(line: Data(#"{"v":1,"e":"\#(e)","run":"\#(run)","attempt":1,"n":\#(n),"time_ns":\#(n * 1_000_000_000),"label":"demo:\#(run)"\#(extra)}"#.utf8)))
+    }
+
+    // Mutation: ignore `outside` (no case for it); the run has no start and reads as a wait to its end, red.
+    // Mutation: keep the `timeout` line's end on `outside` (drop `a.end = nil`); the running attempt reads as ended, red.
+    @Test func aRunThatGoesOnAfterItsTimeoutRunsFromItsOutsideLine() throws {
+        var runs = Runs()
+        runs.apply(try event("enqueue", 1, #","ticket":"t1","typical_s":0,"real_memory":false,"need_mib":12288,"on_timeout":"run","timeout_s":2"#))
+        runs.apply(try event("waiting", 2, #","reason":"room_short""#))
+        runs.apply(try event("timeout", 3, #","on_timeout":"run","last_reason":"room_short","waited_s":2.004"#))
+        runs.apply(try event("outside", 4, #","kind":"timeout_run","reason":"timeout","need_mib":12288"#))
+        let running = try #require(runs.waiting(ticketName: "t1"))
+        #expect(running.arrivalNS == 1_000_000_000 && running.admittedNS == 4_000_000_000 && running.end == nil)
+        runs.apply(try event("ended", 5, #","fail_open":"timeout","hold":"h1","record":{"time_ns":1000000000,"label":"demo:late","waited_s":2.004,"ran_s":2.013,"mem_peak_kib":1008,"exit":0,"fail_open":""}"#))
+        let ended = try #require(runs.waiting(ticketName: "t1"))
+        #expect(ended.admittedNS == 4_000_000_000 && ended.end == Runs.End(event: "ended", timeNS: 5_000_000_000) && ended.failOpen == "timeout")
+    }
+
+    // Mutation: decode the kind from another key; the pass-through is an attempt with no start, red.
+    // Mutation: drop `passThroughs.contains(key)`; its `ended` line makes it an attempt, red.
+    // Mutation: drop `passThroughs.remove(key)`; a later attempt line of that key is dropped too, red.
+    @Test func aPassThroughHasNoAttemptOfItsOwn() throws {
+        var runs = Runs()
+        runs.apply(try event("outside", 1, #","kind":"pass_through","reason":"parent_hold","need_mib":4096,"parent":"h0""#, run: "child"))
+        #expect(runs.attempts.isEmpty)
+        runs.apply(try event("ended", 2, #","record":{"time_ns":1000000000,"label":"demo:child","waited_s":0,"ran_s":1.011,"mem_peak_kib":1008,"exit":0,"fail_open":""}"#, run: "child"))
+        #expect(runs.attempts.isEmpty)
+        runs.apply(try event("admitted", 3, #","hold":"h2""#, run: "child"))
+        #expect(runs.attempts.count == 1)
+    }
+
     // Mutation: record the ticket from the waiting line instead of `enqueue`; nothing is found, red.
     @Test(arguments: Fixture.statusNames.filter { $0 != "status-0.7.0.json" })
     func everyFixtureTicketHasItsWaitingLine(_ status: String) throws {
