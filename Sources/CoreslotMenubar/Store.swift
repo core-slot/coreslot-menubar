@@ -182,7 +182,7 @@ final class Store {
             switch end {
             case .notAsked(let c), .notSent(let c):
                 guard let words = AlertText.refusal(c) else { return }
-                Log.actions.say("stop not sent, \(words.log): \(who(c.read))", failure: c != .gone && c != .changed)
+                Log.actions.say("stop not sent, \(words.log): \(who(c.read))", failure: words.failure)
                 Confirm.tell(words.alert)
             case .declined(let c): Log.actions.say("stop declined: \(who(c.read))")
             case .signalled(let outcome, let c):

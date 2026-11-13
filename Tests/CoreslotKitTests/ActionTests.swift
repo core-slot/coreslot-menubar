@@ -328,9 +328,10 @@ private final class Click: Sendable {
         // Mutation: give `.differs` the `.refused` sentence; the alert would change, red.
         #expect(AlertText.refusal(differs)?.alert == AlertText.refusal(.changed)?.alert)
         #expect(AlertText.refusal(.ready(pid: 2, facts: facts(URL(filePath: "/bin/ls")))) == nil)
-        // Mutation: log `.differs` in `.changed`'s words; red.
+        // Mutation: log `.differs` in `.changed`'s words; red. Mutation: mark `.changed` a failure; red.
         #expect([StopCheck.gone, .changed, differs, .refused("x")].map { AlertText.refusal($0)?.log } == [
             "the hold is gone", "the hold is no longer stoppable", "the process differs from the one confirmed", "x"])
+        #expect([StopCheck.gone, .changed, differs, .refused("x")].map { AlertText.refusal($0)?.failure } == [false, false, true, true])
         // Mutation: tell the person of a stop that was sent (`.sent` gets an alert); red.
         #expect([StopOutcome.sent, .changed(started: nil), .failed(1)].map { AlertText.stopOutcome($0).log } == ["sent", "not sent, the process changed", "failed, errno 1"])
         #expect(AlertText.stopOutcome(.sent).alert == nil && AlertText.stopOutcome(.changed(started: 1)).alert == AlertText.refusal(.changed)?.alert)

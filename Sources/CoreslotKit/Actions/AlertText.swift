@@ -50,14 +50,15 @@ package enum AlertText {
 
     private static let changed = "This command changed since it was shown; nothing was sent."
 
-    /// Why nothing was sent, in the log's words and the person's; nil for `.ready`.
-    package static func refusal(_ c: StopCheck) -> (log: String, alert: String)? {
+    /// Why nothing was sent, in the log's words and the person's, and whether the log marks it a
+    /// failure: a hold that ended or changed is not one. Nil for `.ready`.
+    package static func refusal(_ c: StopCheck) -> (log: String, alert: String, failure: Bool)? {
         switch c {
         case .ready: nil
-        case .gone: ("the hold is gone", "This command has already ended; nothing was sent.")
-        case .changed: ("the hold is no longer stoppable", changed)
-        case .differs: ("the process differs from the one confirmed", changed)
-        case .refused(let r, _, _): (r, "This process could not be confirmed as the command coreslot reports; nothing was sent.")
+        case .gone: ("the hold is gone", "This command has already ended; nothing was sent.", false)
+        case .changed: ("the hold is no longer stoppable", changed, false)
+        case .differs: ("the process differs from the one confirmed", changed, true)
+        case .refused(let r, _, _): (r, "This process could not be confirmed as the command coreslot reports; nothing was sent.", true)
         }
     }
 
