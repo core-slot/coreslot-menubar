@@ -103,19 +103,20 @@ func temporaryDirectory() throws -> URL {
 }
 
 @Suite struct RunnerTests {
-    // Mutation: send no SIGTERM; sleep then lives until the SIGKILL at 2 s, red.
-    // Mutation: send no SIGKILL; the case that ignores SIGTERM runs its 30 s, red.
+    // Mutation: send no SIGTERM; sleep then dies of SIGKILL, so the exit code is 137, not 143, red.
+    // Mutation: send no SIGKILL; the case that ignores SIGTERM runs its 30 s, past the 6 s bound, red.
     // Mutation: wait for the pipe's EOF however long (drop the give-up); the leftover sleep, which
-    // prints its pid and holds the pipe, keeps the third case 12 s, red.
+    // prints its pid and holds the pipe, keeps the third case 12 s, past the 6 s bound, red.
     // Mutation: give up only on a child that was signalled (the rule before this one); the child
-    // that exits at once leaves its sleep holding the pipe for 8 s, red.
+    // that exits at once leaves its sleep holding the pipe for 8 s, past the 6 s bound, red.
+    // The bound is loose on purpose: a loaded runner must not turn it red, only a real wait.
     @Test(arguments: [
-        (["/bin/sleep", "30"], true, 1750),
-        (["/bin/sh", "-c", "trap '' TERM; exec /bin/sleep 30"], true, 3000),
-        (["/bin/sh", "-c", "/bin/sleep 12 & echo $!; exec /bin/sleep 30"], true, 3000),
-        (["/bin/sh", "-c", "/bin/sleep 8 & echo $!; exit 0"], false, 3000),
+        (["/bin/sleep", "30"], true, 6000, Int32?.some(143)),
+        (["/bin/sh", "-c", "trap '' TERM; exec /bin/sleep 30"], true, 6000, Int32?.some(137)),
+        (["/bin/sh", "-c", "/bin/sleep 12 & echo $!; exec /bin/sleep 30"], true, 6000, Int32?.none),
+        (["/bin/sh", "-c", "/bin/sleep 8 & echo $!; exit 0"], false, 6000, Int32?.none),
     ])
-    func aTimeoutEndsTheRunAndReapsTheChild(_ command: [String], timedOut: Bool, withinMS: Int) async throws {
+    func aTimeoutEndsTheRunAndReapsTheChild(_ command: [String], timedOut: Bool, withinMS: Int, exitCode: Int32?) async throws {
         let pid = Mutex<pid_t>(0)
         let clock = ContinuousClock()
         let started = clock.now
@@ -128,6 +129,7 @@ func temporaryDirectory() throws -> URL {
         }
         #expect(r.timedOut == timedOut)
         #expect(took < .milliseconds(withinMS), "took \(took)")
+        if let exitCode { #expect(r.exitCode == exitCode) }
         let child = pid.withLock { $0 }
         #expect(child > 0)
         // No process left at that pid, not even a zombie: kill(2) finds a zombie.
