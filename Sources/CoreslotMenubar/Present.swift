@@ -403,7 +403,8 @@ enum Present {
         if let doc = try? StatusDocument.decode(status) {
             for h in doc.holds { ns = max(ns, Double(h.startNS) + h.heldForS * 1e9) }
             for t in doc.tickets { ns = max(ns, Double(t.createdNS) + t.waitedS * 1e9) }
-            ns = max(ns, Double(doc.reconciledNS))
+            let top = (try? JSONSerialization.jsonObject(with: status)) as? [String: Any] // the app decodes no `reconciled_ns`
+            ns = max(ns, (top?["reconciled_ns"] as? NSNumber)?.doubleValue ?? 0)
         }
         for log in ["telemetry/samples.jsonl", "telemetry/events.jsonl", "log/runs.jsonl"] {
             let text = (try? String(contentsOf: telemetry.appending(path: log), encoding: .utf8)) ?? ""
