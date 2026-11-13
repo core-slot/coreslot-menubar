@@ -57,10 +57,8 @@ package struct CoreslotBinary: Sendable, Equatable {
     package var identity: [Int64] = []
 
     /// Runs `coreslot version` at `url`; nil when it does not answer with a version line.
-    package static func probe(
-        _ url: URL, environment: [String: String]?, runner: Runner = .process, timeout: Duration = .seconds(5)
-    ) async -> CoreslotBinary? {
-        let r = await runner.run(url, ["version"], environment: environment, timeout: timeout)
+    package static func probe(_ url: URL, runner: Runner = .process, timeout: Duration = .seconds(5)) async -> CoreslotBinary? {
+        let r = await runner.run(url, ["version"], environment: nil, timeout: timeout)
         guard r.exitCode == 0, !r.timedOut,
               let version = Version.parse(versionLine: String(decoding: r.stdout, as: UTF8.self))
         else { return nil }

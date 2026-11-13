@@ -37,8 +37,8 @@ package func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading 
 }
 
 /// One `coreslot status --json`, stopped after 5 s, and what it says.
-package func readStatus(_ binary: CoreslotBinary, environment: [String: String]? = nil, runner: Runner) async -> StatusReading {
-    interpret(await runner.run(binary.url, ["status", "--json"], environment: environment, timeout: .seconds(5)), binary: binary)
+package func readStatus(_ binary: CoreslotBinary, runner: Runner) async -> StatusReading {
+    interpret(await runner.run(binary.url, ["status", "--json"], environment: nil, timeout: .seconds(5)), binary: binary)
 }
 
 private func notices(_ doc: StatusDocument) -> [Notice] {
@@ -67,7 +67,6 @@ package actor StatusSource {
     package static func interval(visible: Bool) -> Duration { visible ? .seconds(2) : .seconds(10) }
 
     private let find: @Sendable () -> URL?
-    private let environment: [String: String]?
     private let runner: Runner
     private var known: CoreslotBinary?
     private var interval = interval(visible: false)
@@ -76,8 +75,8 @@ package actor StatusSource {
     private var wanted = false
 
     /// `find`: where `coreslot` is now, nil when nowhere.
-    package init(find: @escaping @Sendable () -> URL?, environment: [String: String]?, runner: Runner = .process) {
-        (self.find, self.environment, self.runner) = (find, environment, runner)
+    package init(find: @escaping @Sendable () -> URL?, runner: Runner = .process) {
+        (self.find, self.runner) = (find, runner)
     }
 
     /// The readings, each taken when it is asked for; the first at once.
@@ -110,7 +109,7 @@ package actor StatusSource {
     /// One reading: the `coreslot` found now, then its `status --json`.
     package func read() async -> Polled {
         guard let binary = await locate() else { return Polled(binary: nil, reading: .problem(.notFound)) }
-        return Polled(binary: binary, reading: await readStatus(binary, environment: environment, runner: runner))
+        return Polled(binary: binary, reading: await readStatus(binary, runner: runner))
     }
 
     /// The `coreslot` found now, none when it cannot be read; its version is read again only for
@@ -118,7 +117,7 @@ package actor StatusSource {
     private func locate() async -> CoreslotBinary? {
         guard let url = find(), let id = Self.identity(url) else { known = nil; return nil }
         if let k = known, k.url == url, k.identity == id { return k }
-        known = await CoreslotBinary.probe(url, environment: environment, runner: runner)
+        known = await CoreslotBinary.probe(url, runner: runner)
         known?.identity = id
         return known
     }

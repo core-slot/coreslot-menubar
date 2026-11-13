@@ -107,7 +107,7 @@ import Testing
         let exe = root.appending(path: "coreslot")
         try Data(("#!/bin/sh\n" + (line.isEmpty ? "" : "echo '\(line)'\n")).utf8).write(to: exe) // "": prints nothing
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: exe.path)
-        #expect(await CoreslotBinary.probe(exe, environment: nil)?.version == want)
+        #expect(await CoreslotBinary.probe(exe)?.version == want)
     }
 }
 

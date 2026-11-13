@@ -124,7 +124,7 @@ private final class Scripted: Sendable {
     }
 
     func source(find: @escaping @Sendable () -> URL? = { release.url }) -> StatusSource {
-        StatusSource(find: find, environment: nil, runner: runner)
+        StatusSource(find: find, runner: runner)
     }
 }
 

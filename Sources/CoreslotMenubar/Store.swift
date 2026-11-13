@@ -205,7 +205,7 @@ final class Store {
 
     private func newSource() -> StatusSource {
         let (find, chosen) = (feed.find, chosenBinary)
-        return StatusSource(find: { find(chosen) }, environment: nil, runner: runner)
+        return StatusSource(find: { find(chosen) }, runner: runner)
     }
 
     /// The `coreslot` a reading came from, then the reading.
