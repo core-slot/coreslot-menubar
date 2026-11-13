@@ -2,69 +2,69 @@ import Foundation
 
 /// The runs of `events.jsonl`, one entry per attempt, joined by `(run, attempt)`: a restart is an
 /// attempt of its own.
-public struct Runs: Sendable {
-    public struct Key: Hashable, Sendable {
-        public let run: String
-        public let attempt: Int64
+package struct Runs: Sendable {
+    package struct Key: Hashable, Sendable {
+        package let run: String
+        package let attempt: Int64
     }
 
-    public struct Attempt: Sendable, Equatable {
-        public let key: Key
-        public var label: String
+    package struct Attempt: Sendable, Equatable {
+        package let key: Key
+        package var label: String
         /// From the `enqueue` line.
-        public var ticket: String?
-        public var typicalS: Int64?
-        public var realMemory = false
-        public var needMiB: Int64?
-        public var arrivalNS: Int64?
+        package var ticket: String?
+        package var typicalS: Int64?
+        package var realMemory = false
+        package var needMiB: Int64?
+        package var arrivalNS: Int64?
         /// The latest `waiting` line, by its line number, and when it was written.
-        public var waiting: EventLine.Waiting?
-        public var waitingNS: Int64?
-        public var admittedNS: Int64?
+        package var waiting: EventLine.Waiting?
+        package var waitingNS: Int64?
+        package var admittedNS: Int64?
         /// The `ended` line, or the line that ended the wait without a start.
-        public var end: End?
-        public var stoppedBy: String?
-        public var failOpen: String?
-        public var signal: String?
+        package var end: End?
+        package var stoppedBy: String?
+        package var failOpen: String?
+        package var signal: String?
         /// The `ended` line's copy of the run-log line: the exit status and the peak.
-        public var record: RunLogLine?
+        package var record: RunLogLine?
         var waitingN: Int64 = 0
     }
 
     /// A `waiting` line with no `ahead`: the reason the head of the queue gave at that moment.
-    public struct Head: Sendable, Equatable {
-        public let timeNS: Int64
-        public let reason: String
-        public let key: Key
+    package struct Head: Sendable, Equatable {
+        package let timeNS: Int64
+        package let reason: String
+        package let key: Key
     }
 
     /// A stretch of time over which the head of the queue gave one reason.
-    public struct HeadReason: Sendable, Equatable {
-        public let fromNS: Int64
-        public let toNS: Int64
-        public let reason: String
+    package struct HeadReason: Sendable, Equatable {
+        package let fromNS: Int64
+        package let toNS: Int64
+        package let reason: String
     }
 
     /// A head's line holds at most this long: a waiter writes one every 30 s.
     static let headLineNS: Int64 = 32_000_000_000
 
-    public struct End: Sendable, Equatable {
+    package struct End: Sendable, Equatable {
         /// The event's name: `ended`, `cancelled`, `interrupted`, `refused`, `timeout`, `not_started`.
-        public let event: String
-        public let timeNS: Int64
+        package let event: String
+        package let timeNS: Int64
     }
 
-    public private(set) var attempts: [Key: Attempt] = [:]
+    package private(set) var attempts: [Key: Attempt] = [:]
     private(set) var byTicket: [String: Key] = [:]
     private var byHold: [String: Key] = [:]
     /// A pass-through runs inside its parent's grant and has no run-log line: no attempt of its own.
     private var passThroughs: Set<Key> = []
     /// In time order.
-    public private(set) var heads: [Head] = []
+    package private(set) var heads: [Head] = []
 
-    public init() {}
+    package init() {}
 
-    public mutating func apply(_ e: EventLine) {
+    package mutating func apply(_ e: EventLine) {
         let key = Key(run: e.run, attempt: e.attempt)
         if passThroughs.contains(key) || e.kind == .outside(passThrough: true) {
             if case .ended = e.kind { passThroughs.remove(key) } else { passThroughs.insert(key) }
@@ -100,7 +100,7 @@ public struct Runs: Sendable {
     }
 
     /// Drops the attempts that ended before `date`, and their tickets; live and waiting ones stay.
-    public mutating func prune(endedBefore date: Date) {
+    package mutating func prune(endedBefore date: Date) {
         attempts = attempts.filter { $0.value.end.map { $0.timeNS >= date.nanosecondsSince1970 } ?? true }
         byTicket = byTicket.filter { attempts[$0.value] != nil }
         byHold = byHold.filter { attempts[$0.value] != nil }
@@ -110,7 +110,7 @@ public struct Runs: Sendable {
     /// What the head of the queue gave as its reason, from `fromNS` to `toNS`: each head's line
     /// holds until the next one, the end of its attempt's wait, or `headLineNS`, whichever is first.
     /// Where no line holds, the record says nothing of why.
-    public func headReasons(fromNS: Int64, toNS: Int64) -> [HeadReason] {
+    package func headReasons(fromNS: Int64, toNS: Int64) -> [HeadReason] {
         var out: [HeadReason] = []
         for (i, h) in heads.enumerated() {
             let a = attempts[h.key]
@@ -123,21 +123,21 @@ public struct Runs: Sendable {
     }
 
     /// The attempt whose `enqueue` line names this ticket file.
-    public func waiting(ticketName: String) -> Attempt? {
+    package func waiting(ticketName: String) -> Attempt? {
         byTicket[ticketName].flatMap { attempts[$0] }
     }
 
     /// The attempt whose `admitted` line names this hold.
-    public func running(holdName: String) -> Attempt? { byHold[holdName].flatMap { attempts[$0] } }
+    package func running(holdName: String) -> Attempt? { byHold[holdName].flatMap { attempts[$0] } }
 }
 
 /// Whether the local record looks on, from the app's own clock: it never reads `config.toml`.
-public enum RecordState: Sendable, Equatable {
+package enum RecordState: Sendable, Equatable {
     case on, looksOff, unknown
 
     /// `lastSample` is when the app last read a new sample line; `holdLiveSince` is since when
     /// every poll has seen a live hold.
-    public init(now: Date, lastSample: Date?, holdLiveSince: Date?) {
+    package init(now: Date, lastSample: Date?, holdLiveSince: Date?) {
         let sampleAge = lastSample.map { now.timeIntervalSince($0) }
         if let sampleAge, sampleAge <= 30 {
             self = .on

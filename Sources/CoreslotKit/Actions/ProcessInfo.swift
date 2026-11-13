@@ -2,29 +2,29 @@ import Darwin
 import Foundation
 
 /// What the kernel says about the process at a pid.
-public struct ProcessFacts: Sendable, Equatable {
+package struct ProcessFacts: Sendable, Equatable {
     /// The file the process runs, as the kernel maps it: no path renamed or linked since changes it.
-    public let executable: FileID
+    package let executable: FileID
     /// `pbi_start_tvsec`: when the process started, in whole seconds since the epoch.
-    public let startSeconds: Int64
+    package let startSeconds: Int64
     /// `KERN_PROCARGS2`: the process's own arguments, the first one included.
-    public let arguments: [String]
+    package let arguments: [String]
 
-    public init(executable: FileID, startSeconds: Int64, arguments: [String]) {
+    package init(executable: FileID, startSeconds: Int64, arguments: [String]) {
         (self.executable, self.startSeconds, self.arguments) = (executable, startSeconds, arguments)
     }
 }
 
-public protocol ProcessInspector: Sendable {
+package protocol ProcessInspector: Sendable {
     /// Nil when any of the facts cannot be read.
     func facts(_ pid: pid_t) -> ProcessFacts?
 }
 
 /// Reads the facts from the kernel, which a process cannot change for another process.
-public struct DarwinProcessInspector: ProcessInspector {
-    public init() {}
+package struct DarwinProcessInspector: ProcessInspector {
+    package init() {}
 
-    public func facts(_ pid: pid_t) -> ProcessFacts? {
+    package func facts(_ pid: pid_t) -> ProcessFacts? {
         Self.facts(pid, start: Self.startSeconds, executable: Self.executable, arguments: Self.arguments)
     }
 

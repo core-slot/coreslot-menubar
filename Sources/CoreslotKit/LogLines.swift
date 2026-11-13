@@ -1,40 +1,40 @@
 import Foundation
 
 /// One line of the app's own log; text from the state directory in it has passed `SafeText.display`.
-public struct LogLine: Equatable, Sendable {
-    public let text: String
-    public let failure: Bool
+package struct LogLine: Equatable, Sendable {
+    package let text: String
+    package let failure: Bool
 
-    public init(text: String, failure: Bool) { (self.text, self.failure) = (text, failure) }
+    package init(text: String, failure: Bool) { (self.text, self.failure) = (text, failure) }
 }
 
 /// What changed since the last time, as log lines: every poll is seen here, only changes come out.
-public struct LogTransitions: Sendable {
+package struct LogTransitions: Sendable {
     private var kind: Kind?
     private var notices: [String] = []
     private var binary: CoreslotBinary?
     private var readErrors: [String] = []
 
-    public init() {}
+    package init() {}
 
     /// What a reading is, without its document: the log says when it changes.
-    public enum Kind: Equatable, Sendable {
+    package enum Kind: Equatable, Sendable {
         case document, notices, problem(Problem)
-        public init(_ r: StatusReading) {
+        package init(_ r: StatusReading) {
             self = switch r { case .document: .document; case .notices: .notices; case .problem(let p): .problem(p) }
         }
 
-        public var text: String {
+        package var text: String {
             switch self { case .document: "document"; case .notices: "notices only"; case .problem(let p): "problem: " + Words.problem(p).state }
         }
     }
 
     /// A restart reads the record anew: the errors seen so far were of the record before.
-    public mutating func restarted() { readErrors = [] }
+    package mutating func restarted() { readErrors = [] }
 
     /// The reading's kind when it changes; notices as they appear or clear. A problem says nothing
     /// of notices, so they stand until the next reading that has them.
-    public mutating func reading(_ r: StatusReading) -> [LogLine] {
+    package mutating func reading(_ r: StatusReading) -> [LogLine] {
         let now = Kind(r)
         defer { kind = now }
         let failure = if case .problem = now { true } else { false }
@@ -48,7 +48,7 @@ public struct LogTransitions: Sendable {
     }
 
     /// The `coreslot` found, a new one, or none where there was one.
-    public mutating func located(_ b: CoreslotBinary?) -> LogLine? {
+    package mutating func located(_ b: CoreslotBinary?) -> LogLine? {
         guard b != binary, let old = binary ?? b else { return nil }
         defer { binary = b }
         guard let b else { return LogLine(text: "coreslot lost at \(old.url.path)", failure: true) }
@@ -56,7 +56,7 @@ public struct LogTransitions: Sendable {
     }
 
     /// Errors reading the record, each once while it lasts, and once when it ends.
-    public mutating func read(errors: [String]) -> [LogLine] {
+    package mutating func read(errors: [String]) -> [LogLine] {
         Self.diff(&readErrors, errors, "read error:", "read again:", failure: true)
     }
 

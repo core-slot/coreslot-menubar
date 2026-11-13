@@ -2,29 +2,29 @@ import Darwin
 import Foundation
 import Synchronization
 
-public struct RunResult: Sendable, Equatable {
+package struct RunResult: Sendable, Equatable {
     /// The exit status; `128 + n` when signal `n` ended the process; nil when there is no such
     /// executable or it is not one (`ENOENT`, `EACCES`, `ENOEXEC`); `-errno` when it could not be
     /// started or waited for otherwise (`EMFILE`, say).
-    public let exitCode: Int32?
-    public let stdout: Data
-    public let timedOut: Bool
+    package let exitCode: Int32?
+    package let stdout: Data
+    package let timedOut: Bool
 
-    public init(exitCode: Int32?, stdout: Data = Data(), timedOut: Bool = false) {
+    package init(exitCode: Int32?, stdout: Data = Data(), timedOut: Bool = false) {
         (self.exitCode, self.stdout, self.timedOut) = (exitCode, stdout, timedOut)
     }
 }
 
 /// Runs an executable and collects what it printed. Tests give one of their own.
-public struct Runner: Sendable {
+package struct Runner: Sendable {
     let body: @Sendable (URL, [String], [String: String]?, Duration) async -> RunResult
 
-    public init(_ body: @escaping @Sendable (URL, [String], [String: String]?, Duration) async -> RunResult) {
+    package init(_ body: @escaping @Sendable (URL, [String], [String: String]?, Duration) async -> RunResult) {
         self.body = body
     }
 
     /// `environment` is laid over the app's own; nil passes the app's own unchanged.
-    public func run(_ exe: URL, _ args: [String], environment: [String: String]?, timeout: Duration) async -> RunResult {
+    package func run(_ exe: URL, _ args: [String], environment: [String: String]?, timeout: Duration) async -> RunResult {
         await body(exe, args, environment, timeout)
     }
 
@@ -32,7 +32,7 @@ public struct Runner: Sendable {
     /// `SIGKILL` a second later, and is always reaped. Its stdout is read until a second past
     /// `timeout` at most, whatever the child did: a descendant that keeps the pipe open does not
     /// extend the run.
-    public static let process = Runner { await spawn($0, $1, $2, $3, spawned: { _ in }) }
+    package static let process = Runner { await spawn($0, $1, $2, $3, spawned: { _ in }) }
 
     /// Stdout keeps at most this much; the rest is read and dropped.
     static let outputLimit = 16 << 20

@@ -1,11 +1,11 @@
 import Foundation
 
 /// Text from the state directory or a process, shown escaped, never applied.
-public enum SafeText {
+package enum SafeText {
     /// A backslash as `\\`, and every control, format (bidirectional, zero-width, tag), line or
     /// paragraph separator, unassigned or default-ignorable scalar (which renders as nothing) as
     /// `\u{XXXX}`, so two distinct strings stay distinct.
-    public static func display(_ s: String) -> String {
+    package static func display(_ s: String) -> String {
         var out = String.UnicodeScalarView()
         for u in s.unicodeScalars {
             if u == "\\" {
