@@ -72,10 +72,11 @@ System Settings → General → Login Items; remove it there. coreslot itself st
 ## Diagnostics
 
 The app keeps its own log in the macOS unified log, which the system bounds and keeps; it writes
-no file of its own. When the app showed or did something unexpected, read the last day with:
+no file of its own. When the app showed or did something unexpected, read the last day with
+`/usr/bin/log` (in zsh, macOS's default shell, a bare `log` is zsh's own builtin and fails):
 
 ```sh
-log show --predicate 'subsystem == "io.github.core-slot.menubar"' --last 1d --style compact
+/usr/bin/log show --predicate 'subsystem == "io.github.core-slot.menubar"' --last 1d --style compact
 ```
 
 It logs changes, never every poll, in four categories:
