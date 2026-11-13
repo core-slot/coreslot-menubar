@@ -30,7 +30,7 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         let old = try document("status-0.7.0.json")
         #expect(IconState(.document(old, [.tooOld])) == .waiting(fill: 0))
         let queue = try document("status-queue.json")
-        for n: Notice in [.degraded("x"), .formatNotUnderstood, .configError("x")] {
+        for n: Notice in [.degraded("x"), .formatNotUnderstood(""), .configError("x")] {
             #expect(IconState(.document(queue, [n])) == .waiting(fill: 0), "\(n)")
         }
         #expect(IconState(.notices([.schema(2)])) == .unavailable && IconState(.notices([.tooOld])) == .unavailable)
@@ -122,27 +122,45 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
 }
 
 @Suite struct WordsTests {
-    private func watch(_ level: String, learning: Int64 = 0) -> StatusDocument.Watch {
-        StatusDocument.Watch(level: level, excessPoints: 0, protecting: true, reason: "", nextVictim: "", learning: learning)
-    }
-
-    // Mutation: say "Learning" whatever the level once `learning` > 0; the yellow case, red.
+    // The idle fixture has no hold; the queue fixture has two.
+    // Mutation: say "Learning" for green whenever `learning` > 0; the idle machine after a run, red.
+    // Mutation: say "No recent reading" for an empty level whatever the holds; the idle case, red.
+    // Mutation: say "Stopping commands" for every red; the red that is not protecting, red.
+    // Mutation: put the reason or an unknown code in without SafeText; the U+202E arrives, red.
     @Test(arguments: [
-        ("green", 0, "Memory normal"), ("green", 2, "Learning"), ("yellow", 2, "Memory tight"),
-        ("red", 0, "Stopping commands"), ("floor", 0, "Memory critically low"), ("", 0, "No recent reading"),
-        ("unknown", 0, "No recent reading"),
-    ] as [(String, Int64, String)])
-    func theLevel(_ level: String, _ learning: Int64, _ want: String) {
-        #expect(Words.level(watch(level, learning: learning)) == want)
+        ("status-idle.json", "", 0, true, "", "Idle"),
+        ("status-queue.json", "", 0, true, "", "No recent reading"),
+        ("status-idle.json", "unknown", 0, true, "", "Memory reading failed"),
+        ("status-idle.json", "green", 1, false, "no coreslot job is running", "Memory normal"),
+        ("status-queue.json", "green", 1, true, "", "Learning"),
+        ("status-queue.json", "green", 0, true, "", "Memory normal"),
+        ("status-queue.json", "yellow", 2, true, "", "Memory tight"),
+        ("status-queue.json", "red", 0, true, "", "Stopping commands"),
+        ("status-queue.json", "red", 0, false, "", "Memory very tight"),
+        ("status-queue.json", "red", 0, false, "cooling\u{202E}", "Memory very tight · not stopping: cooling\\u{202E}"),
+        ("status-queue.json", "floor", 0, true, "", "Memory critically low"),
+        ("status-queue.json", "violet\u{202E}", 0, true, "", "Memory level violet\\u{202E}"),
+    ] as [(String, String, Int, Bool, String, String)])
+    func theLevel(_ name: String, _ level: String, _ learning: Int, _ protecting: Bool, _ reason: String, _ want: String) throws {
+        let doc = try document(name) {
+            $0["watch"] = ($0["watch"] as! [String: Any])
+                .merging(["level": level, "learning": learning, "protecting": protecting, "reason": reason]) { $1 }
+        }
+        #expect(Words.level(doc) == want)
     }
 
     // Mutation: put `degraded.reason` in the sentence without SafeText; the U+202E arrives, red.
+    // Mutation: leave the format error out of its sentence; red.
+    // Mutation: say "newer than this app" for every other schema; schema 0, red.
     @Test func theNotices() throws {
         #expect(Words.notice(.tooOld) == "Update coreslot to 0.8.0 or later")
         #expect(Words.notice(.degraded("lock\u{202E}txt")) == "coreslot is degraded: lock\\u{202E}txt")
         #expect(Words.notice(.configError("bad\nline")) == "coreslot's configuration has a problem: bad\\u{000A}line")
-        #expect(Words.notice(.formatNotUnderstood) == "This coreslot writes a format this app does not know")
+        let format = "This coreslot does not understand the state directory's format: update or repair coreslot"
+        #expect(Words.notice(.formatNotUnderstood("")) == format)
+        #expect(Words.notice(.formatNotUnderstood("FORMAT: 3\n")) == format + " (FORMAT: 3\\u{000A})")
         #expect(Words.notice(.schema(2)) == "This coreslot's status document is newer than this app")
+        #expect(Words.notice(.schema(0)) == "This coreslot's status document has a schema this app does not know")
     }
 
     // Mutation: drop "on the machine" for a container request; red.

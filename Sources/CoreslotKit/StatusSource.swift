@@ -2,7 +2,7 @@ import Foundation
 
 /// Something the header says about a reading.
 public enum Notice: Equatable, Sendable {
-    case tooOld, degraded(String), formatNotUnderstood, configError(String), schema(Int64)
+    case tooOld, degraded(String), formatNotUnderstood(String), configError(String), schema(Int64)
 }
 
 /// Why there is no document to show.
@@ -39,7 +39,7 @@ public func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading {
 private func notices(_ doc: StatusDocument) -> [Notice] {
     var n: [Notice] = []
     if let d = doc.degraded { n.append(.degraded(d.reason)) }
-    if !doc.formatUnderstood { n.append(.formatNotUnderstood) }
+    if !doc.formatUnderstood { n.append(.formatNotUnderstood(doc.formatError)) }
     if !doc.configError.isEmpty { n.append(.configError(doc.configError)) }
     return n
 }

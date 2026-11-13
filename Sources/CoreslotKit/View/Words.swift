@@ -3,14 +3,19 @@ import Foundation
 /// The app's fixed English for coreslot's closed codes. Text from coreslot inside a sentence goes
 /// through `SafeText`.
 public enum Words {
-    /// The watchdog's level in words.
-    public static func level(_ watch: StatusDocument.Watch) -> String {
-        switch watch.level {
-        case "green": watch.learning > 0 ? "Learning" : "Memory normal"
-        case "yellow": "Memory tight"
-        case "red": "Stopping commands"
-        case "floor": "Memory critically low"
-        default: "No recent reading"
+    /// The watchdog's level in words. An empty level is no sample in the last 6 s, which is idle
+    /// while no hold is live.
+    public static func level(_ doc: StatusDocument) -> String {
+        let w = doc.watch, live = !doc.holds.isEmpty
+        switch w.level {
+        case "": return live ? "No recent reading" : "Idle"
+        case "unknown": return "Memory reading failed"
+        case "green": return w.learning > 0 && live ? "Learning" : "Memory normal"
+        case "yellow": return "Memory tight"
+        case "red" where w.protecting: return "Stopping commands"
+        case "red": return "Memory very tight" + (w.reason.isEmpty ? "" : " · not stopping: " + SafeText.display(w.reason))
+        case "floor": return "Memory critically low"
+        case let code: return "Memory level " + SafeText.display(code)
         }
     }
 
@@ -20,8 +25,11 @@ public enum Words {
         case .tooOld: "Update coreslot to \(Version.minimum) or later"
         case .degraded(let reason): "coreslot is degraded: \(SafeText.display(reason))"
         case .configError(let error): "coreslot's configuration has a problem: \(SafeText.display(error))"
-        case .formatNotUnderstood: "This coreslot writes a format this app does not know"
-        case .schema: "This coreslot's status document is newer than this app"
+        case .formatNotUnderstood(let error):
+            "This coreslot does not understand the state directory's format: update or repair coreslot"
+                + (error.isEmpty ? "" : " (\(SafeText.display(error)))")
+        case .schema(let n) where n > 1: "This coreslot's status document is newer than this app"
+        case .schema: "This coreslot's status document has a schema this app does not know"
         }
     }
 

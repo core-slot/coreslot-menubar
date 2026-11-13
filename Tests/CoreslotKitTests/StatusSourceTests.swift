@@ -34,9 +34,10 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
         let data = try with("status-queue.json") {
             $0["degraded"] = ["reason": "holds/ unreadable", "first_ns": 1, "count": 1, "malformed": false]
             $0["format_understood"] = false
+            $0["format_error"] = "FORMAT: not a number"
         }
         #expect(interpret(RunResult(exitCode: 3, stdout: data), binary: release)
-            == .document(try StatusDocument.decode(data), [.degraded("holds/ unreadable"), .formatNotUnderstood]))
+            == .document(try StatusDocument.decode(data), [.degraded("holds/ unreadable"), .formatNotUnderstood("FORMAT: not a number")]))
     }
 
     // Mutation: return .failed for every exit with no document; red.
