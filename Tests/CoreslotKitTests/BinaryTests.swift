@@ -16,12 +16,23 @@ import Testing
         #expect(try #require(Version.parse(versionLine: "coreslot 0.0.0-dev (protocol formats: 2)")).isDevelopment)
     }
 
-    // Mutation: drop the check that the format is a number; the line with `x` parses, red.
+    // coreslot's contract (https://github.com/core-slot/coreslot/blob/v0.8.0/docs/compatibility.md, "Supported"): `(protocol formats: <list>)`.
+    // Mutation: split the whole line on spaces (drop `maxSplits: 4`), so a list with spaces is more
+    // than five words; red.
+    @Test(arguments: ["coreslot 0.9.0 (protocol formats: 2, 3)", "coreslot 0.9.0 (protocol formats: 2,3)",
+                      "coreslot 0.9.0 (protocol formats: 2, 3, 4)\n"])
+    func aLineListingSeveralFormatsParses(_ line: String) {
+        #expect(Version.parse(versionLine: line) == Version(0, 9, 0))
+    }
+
+    // Mutation: drop the check that each format is a number; the lines with `x` parse, red.
     // Mutation: drop `w.count == 5`; the line cut after `formats:` traps on `w[4]`, red (crash).
+    // Mutation: omit empty pieces of the list; `2,` and `2,, 3` parse, red.
     @Test(arguments: ["", "coreslot", "coreslot 0.8 (protocol formats: 2)", "coreslot 0.8.0 (protocol formats:",
-                      "coreslot 0.8.0 (protocol formats: )",
-                      "coreslot 0.8.0 (protocol formats: 2, 3)", "coreslot 0.8.0 (protocol formats: x)",
-                      "other 0.8.0 (protocol formats: 2)"])
+                      "coreslot 0.8.0 (protocol formats: )", "coreslot 0.8.0 (protocol formats: x)",
+                      "coreslot 0.8.0 (protocol formats: 2, x)", "coreslot 0.8.0 (protocol formats: 2,)",
+                      "coreslot 0.8.0 (protocol formats: 2,, 3)", "coreslot 0.8.0 (protocol formats: 2 3)",
+                      "coreslot 0.8.0 (protocol formats: 2, 3", "other 0.8.0 (protocol formats: 2)"])
     func anythingElseDoesNot(_ line: String) {
         #expect(Version.parse(versionLine: line) == nil)
     }

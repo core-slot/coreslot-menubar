@@ -31,11 +31,12 @@ public struct Version: Comparable, Sendable, CustomStringConvertible {
         self = x == 0 && y == 0 && z == 0 ? .development : Version(x, y, z)
     }
 
-    /// Parses the line `coreslot version` prints, `coreslot <v> (protocol formats: <n>)`; nil for any other.
+    /// Parses the line `coreslot version` prints, `coreslot <v> (protocol formats: <list>)`, the list
+    /// integers separated by commas (one, today); nil for any other.
     public static func parse(versionLine line: String) -> Version? {
-        let w = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ", omittingEmptySubsequences: false)
+        let w = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ", maxSplits: 4, omittingEmptySubsequences: false)
         guard w.count == 5, w[0] == "coreslot", w[2] == "(protocol", w[3] == "formats:", w[4].hasSuffix(")"),
-              Int(w[4].dropLast()) != nil
+              w[4].dropLast().split(separator: ",", omittingEmptySubsequences: false).allSatisfy({ Int($0.trimmingCharacters(in: .whitespaces)) != nil })
         else { return nil }
         return Version(String(w[1]))
     }
