@@ -193,6 +193,19 @@ extension JSONLTail {
         }
     }
 
+    // Mutation: decode `vm` with `try`, without `try?`; the line with a bad `vm` is skipped, red.
+    // Mutation: leave `vm` out (nil); the VM's process is lost, red.
+    @Test func aMemoryLineKeepsItsVMAndABadVMCostsItNothing() throws {
+        let line = { (vm: String) in
+            MemoryLine(line: Data(#"{"v":1,"e":"memory","time_ns":7,"top":[{"name":"a","footprint_mib":9}]\#(vm)}"#.utf8))
+        }
+        let vm = MemoryLine.Process(name: "com.docker.krun", footprintMiB: 4885)
+        #expect(try #require(line(#","vm":{"name":"com.docker.krun","footprint_mib":4885,"resident_mib":361}"#)).vm == vm)
+        let bad = try #require(line(#","vm":{"name":7}"#))
+        #expect(bad.vm == nil && bad.top == [MemoryLine.Process(name: "a", footprintMiB: 9)])
+        #expect(try #require(line("")).vm == nil)
+    }
+
     // Mutation: spell Enqueue's `real_memory` key `realMemory`; every enqueue line is skipped, red.
     @Test(arguments: Fixture.telemetryNames)
     func everyFixtureLineDecodes(_ name: String) throws {

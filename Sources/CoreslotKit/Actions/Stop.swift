@@ -33,7 +33,7 @@ public func prepareStop(
     holdName: String, using binary: CoreslotBinary, runner: Runner, inspector: any ProcessInspector
 ) async -> StopCheck {
     let r = await runner.run(binary.url, ["status", "--json"], environment: nil, timeout: StatusSource.statusTimeout)
-    guard case .document(let doc, _) = interpret(r, binary: binary), !doc.isSchemaOnly else {
+    guard case .document(let doc, _) = interpret(r, binary: binary) else {
         return .refused("status could not be read")
     }
     guard let hold = doc.holds.first(where: { $0.name == holdName }) else { return .gone }
@@ -41,7 +41,7 @@ public func prepareStop(
     guard (2...Int64(Int32.max)).contains(hold.pid) else { return .refused("pid \(hold.pid) is out of range") }
     let pid = pid_t(hold.pid)
     guard let facts = inspector.facts(pid) else { return .refused("the process could not be read") }
-    guard let exe = FileIdentity(facts.executable), exe == FileIdentity(binary.url) else {
+    guard let exe = FileID(facts.executable), exe == FileID(binary.url) else {
         return .refused("the process runs another executable")
     }
     guard facts.startSeconds <= hold.startNS / 1_000_000_000 + startSlackS else {
@@ -69,16 +69,4 @@ public func sendStop(_ c: StopCheck, inspector: any ProcessInspector, signal: (p
     guard case .ready(let pid, let facts) = c, inspector.facts(pid) == facts else { return .changed }
     let e = signal(pid, SIGTERM)
     return e == 0 ? .sent : .failed(e)
-}
-
-/// A file by device and inode, symlinks followed.
-private struct FileIdentity: Equatable {
-    let device: Int64
-    let inode: UInt64
-
-    init?(_ url: URL) {
-        var st = stat()
-        guard stat(url.path, &st) == 0 else { return nil }
-        (device, inode) = (Int64(st.st_dev), UInt64(st.st_ino))
-    }
 }

@@ -50,3 +50,38 @@ holds another label, your user name or your home directory. Read the diff before
 
 `status-0.7.0.json` is not from the script: it is a 0.8.0 fixture with the keys 0.8.0 added
 removed by hand, so the tests cover an older coreslot.
+
+## Looking at the UI
+
+A debug build of the app takes two flags that read the fixtures above; release builds have neither.
+The fixtures are found from the executable up to `Package.swift`, or named with
+`--fixtures-dir DIR`.
+
+- `--fixture NAME` runs the whole app, menu bar icon included, over one variant below, with the
+  clock starting at the fixture's newest moment.
+- `--present NAME[,NAME…]|all [--appearance light|dark]` opens the popover's content over each
+  variant in an ordinary window, at the fixture's newest moment, with every row's hover actions
+  shown, and prints one line per window, `present-window <kind> <name> <window number>`, then
+  `present-ready`. Capture a window with `screencapture -x -o -l <window number> out.png`.
+
+```sh
+swift run coreslot-menubar --present all --appearance dark
+```
+
+The variants: the fixtures `idle`, `queue`, `cancelled`, `dead`, `stopped`, `no-typical` and
+`0.7.0` (an older coreslot); the queue with the watchdog `normal`, `yellow`, `red` and `floor`; the
+queue as a document with a notice, `degraded`, `format` (not understood) and `config-error`; a
+document of another schema, `schema-2`; no document at all, `not-found`, `state-unreadable` (exit 3,
+nothing printed), `exit-64`, `exit-70`, `malformed` and `timeout`; the queue with the local record
+looking off, `record-off`; holds reserving more than the machine has, `shortfall`; labels and a
+degraded reason with control, bidirectional, zero-width and tag characters and a container hold,
+`untrusted`; more rows than the popover shows unscrolled, `many`; holds whose process the app
+cannot read, `unchecked`; and `icons`, every state of the menu bar icon. `alert-stop`,
+`alert-cancel` and `alert-refused` show the stop confirmation (with a command line holding hidden
+characters), the cancel confirmation and the refusal over the queue; an alert draws only while it
+runs, so name one per launch, and `all` leaves them out.
+
+Two more debug flags drive a stop through the app's own path against a real `coreslot`, without a
+click: `--answer yes|no` answers every confirmation unseen and prints its text to stderr, and
+`--ask-stop LABEL` asks once to stop the first stoppable hold of that label. Use them only with
+`CORESLOT_STATE_DIR` set to a throwaway directory, for both the `coreslot run` and the app.

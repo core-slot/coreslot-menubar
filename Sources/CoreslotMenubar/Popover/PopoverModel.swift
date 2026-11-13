@@ -120,10 +120,10 @@ extension Store {
         case .problem(let p):
             let words = Words.problem(p)
             return PopoverModel(level: nil, tone: .unknown, notices: [], body: .unavailable(state: words.state, fix: words.fix))
-        case .document(_, let notices):
-            let said = notices.compactMap(Words.notice)
-            guard let doc = document else { return PopoverModel(level: nil, tone: .unknown, notices: said, body: .noticeOnly) }
-            return PopoverModel(level: Words.level(doc.watch), tone: tone(doc.watch.level), notices: said, body: .live(live(doc)))
+        case .notices(let notices):
+            return PopoverModel(level: nil, tone: .unknown, notices: notices.map(Words.notice), body: .noticeOnly)
+        case .document(let doc, let notices):
+            return PopoverModel(level: Words.level(doc), tone: tone(doc.watch.level), notices: notices.map(Words.notice), body: .live(live(doc)))
         }
     }
 
@@ -136,7 +136,7 @@ extension Store {
         }
     }
 
-    private var nowNS: Int64 { Int64(now.timeIntervalSince1970 * 1e9) }
+    private var nowNS: Int64 { now.nanosecondsSince1970 }
 
     private func color(_ label: String) -> Int { labelColors[label] ?? 0 }
 
@@ -146,7 +146,7 @@ extension Store {
         let rows = waiting.enumerated().map { waitingRow($0.element, first: $0.offset == 0, recordOff: off) }
         let totals = report.map { r in
             r.runs == 0 ? "Last 24 h: no runs"
-                : "Last 24 h: \(r.runs) \(r.runs == 1 ? "run" : "runs") · median wait \(Formatting.duration(Int64(r.medianWaitS.rounded()))) · longest \(Formatting.duration(Int64(r.longestWaitS.rounded())))"
+                : "Last 24 h: \(r.runs) \(r.runs == 1 ? "run" : "runs") · median wait \(Formatting.duration(r.medianWaitS)) · longest \(Formatting.duration(r.longestWaitS))"
         }
         return PopoverModel.Live(
             memory: memory(doc), running: doc.holds.map(runningRow), waiting: rows,
@@ -194,8 +194,12 @@ extension Store {
             m.shortfall = "Set aside \(Formatting.size(bar.setAsideMiB)), \(Formatting.size(short)) short"
         }
         // A list of the largest processes, not of what is outside coreslot; "others" closes it.
-        if let line = record.memory, !line.top.isEmpty, nowNS - line.timeNS <= 120_000_000_000 {
-            let named = line.top.prefix(3).map { "\(SafeText.display($0.name)) \(Formatting.size($0.footprintMiB))" }
+        // `memory.top` and the Docker VM's largest process, `memory.vm`, unless `top` names it.
+        if let line = record.memory, nowNS - line.timeNS <= 120_000_000_000 {
+            let largest = (line.top + [line.vm].compactMap { $0 }.filter { !line.top.contains($0) })
+                .sorted { $0.footprintMiB > $1.footprintMiB }
+            guard !largest.isEmpty else { return m }
+            let named = largest.prefix(3).map { "\(SafeText.display($0.name)) \(Formatting.size($0.footprintMiB))" }
             m.largest = "Largest processes: " + named.joined(separator: ", ") + ", others"
         }
         return m
@@ -229,13 +233,13 @@ extension Store {
         let trailing: String? = if first {
             Formatting.firstTicketWait(t.expectedWaitS)
         } else if let typical = attempt?.typicalS, typical > 0 {
-            "usually \(Formatting.duration(typical))"
+            "usually \(Formatting.duration(Double(typical)))"
         } else {
             nil
         }
         return WaitingRow(
             ticket: t, label: SafeText.display(t.label), color: color(t.label), reason: reason,
-            waited: "waited \(Formatting.duration(Int64(t.waitedS.rounded())))", trailing: trailing,
+            waited: "waited \(Formatting.duration(t.waitedS))", trailing: trailing,
             cancelRequested: cancelRequested.contains(t.id))
     }
 
@@ -243,7 +247,8 @@ extension Store {
 
     private func strip(_ doc: StatusDocument, recordOff: Bool) -> StripModel {
         let now = nowNS, from = now - StripModel.pastS * 1_000_000_000
-        let x = { (t: Int64) in min(1, max(0, StripModel.nowX * Double(t - from) / Double(now - from))) }
+        let xs = { (t: Double) in min(1, max(0, StripModel.nowX * (t - Double(from)) / Double(now - from))) }
+        let x = { (t: Int64) in xs(Double(t)) }
         var bars: [StripModel.Bar] = []
         let attempts = record.runs.attempts.values.filter { $0.end.map { $0.timeNS >= from } ?? false }
         if !recordOff && !record.runs.attempts.isEmpty {
@@ -256,9 +261,10 @@ extension Store {
             }
         } else {
             for (i, r) in record.finished.enumerated() {
-                let ran = r.timeNS + Int64(r.waitedS * 1e9), end = ran + Int64(r.ranS * 1e9)
-                guard end >= from else { continue }
-                bars.append(.init(id: "log/\(i)", color: color(r.label), waitFrom: x(r.timeNS), runFrom: x(ran), to: x(end)))
+                // In `Double`: seconds as large as the clamp lets through do not fit in nanoseconds.
+                let ran = Double(r.timeNS) + r.waitedS * 1e9, end = ran + r.ranS * 1e9
+                guard end >= Double(from) else { continue }
+                bars.append(.init(id: "log/\(i)", color: color(r.label), waitFrom: x(r.timeNS), runFrom: xs(ran), to: xs(end)))
             }
         }
         for h in doc.holds {

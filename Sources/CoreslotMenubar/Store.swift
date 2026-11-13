@@ -63,10 +63,9 @@ final class Store {
 
     var icon: IconState { reading.map(IconState.init) ?? .idle }
 
-    /// The document, unless it is schema-only: another schema, or too old a coreslot to decode,
-    /// whose `state_dir`, `watch` and `mem` are invented and feed nothing.
+    /// The document; a reading of notices alone has none, and feeds nothing.
     var document: StatusDocument? {
-        guard case .document(let doc, _) = reading, !doc.isSchemaOnly else { return nil }
+        guard case .document(let doc, _) = reading else { return nil }
         return doc
     }
 
@@ -215,9 +214,8 @@ struct RecordSnapshot: Sendable {
     var stateDir: URL?
     var runs = Runs()
     var tracks = HoldTracks()
-    /// Memory over time from the samples, and from the app's own polls for when the record is off.
+    /// Memory over time from the samples, one series per range.
     var series = Dictionary(uniqueKeysWithValues: Series.Range.allCases.map { ($0, Series(range: $0)) })
-    var polled = Dictionary(uniqueKeysWithValues: Series.Range.allCases.map { ($0, Series(range: $0, maxSilenceS: 25)) })
     var memory: MemoryLine?
     /// The run log's last 24 hours, oldest first.
     var finished: [RunLogLine] = []
@@ -240,13 +238,12 @@ actor RecordReader {
 
     func update(stateDir: URL?, doc: StatusDocument?, at: Date) -> RecordSnapshot {
         if let stateDir, stateDir != snapshot.stateDir {
-            let after = at.addingTimeInterval(-Self.keepS)
             snapshot = RecordSnapshot(stateDir: stateDir)
-            samples = JSONLTail(stateDir: stateDir, log: .samples, startingAfter: after)
-            events = JSONLTail(stateDir: stateDir, log: .events, startingAfter: after)
-            runLog = JSONLTail(stateDir: stateDir, log: .runs, startingAfter: after)
+            samples = JSONLTail(stateDir: stateDir, log: .samples)
+            events = JSONLTail(stateDir: stateDir, log: .events)
+            runLog = JSONLTail(stateDir: stateDir, log: .runs)
         }
-        let cutNS = Int64(at.addingTimeInterval(-Self.keepS).timeIntervalSince1970 * 1e9)
+        let cutNS = at.addingTimeInterval(-Self.keepS).nanosecondsSince1970
         snapshot.newSamples = 0
         drain(&samples) { line in
             guard let s = SampleLine(line: line), s.timeNS >= cutNS else { return }
@@ -269,7 +266,6 @@ actor RecordReader {
         if let doc {
             snapshot.tracks.add(doc, at: at)
             snapshot.tracks.keep(only: Set(doc.holds.map(\.name)))
-            for r in Series.Range.allCases { snapshot.polled[r]?.add(doc, at: at) }
         }
         return snapshot
     }

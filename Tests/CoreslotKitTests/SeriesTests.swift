@@ -125,8 +125,7 @@ import Testing
 @Suite struct HoldTracksTests {
     private func sample(_ s: Int64, ok: Bool = true, _ jobs: [(String, Int64)]) -> SampleLine {
         SampleLine(
-            timeNS: s * 1_000_000_000, level: ok ? "green" : "unknown", headroomOK: ok, headroomMiB: ok ? 4000 : 0,
-            reserveMiB: 256, roomMiB: 0, liveHolds: Int64(jobs.count),
+            timeNS: s * 1_000_000_000, headroomOK: ok, headroomMiB: ok ? 4000 : 0, reserveMiB: 256, roomMiB: 0,
             jobs: jobs.map { SampleLine.Job(hold: $0.0, label: "demo:same", footprintMiB: $0.1) })
     }
 

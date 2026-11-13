@@ -128,10 +128,7 @@ public struct Series: Sendable {
             reservedMiB: machine - r.reserveMiB - r.roomMiB)
     }
 
-    private func index(_ t: Int64) -> Int64 {
-        let res = range.resolutionS * 1_000_000_000
-        return t / res
-    }
+    private func index(_ t: Int64) -> Int64 { slot(t, resolutionS: range.resolutionS) }
 
     private mutating func prune(before t: Int64) {
         let i = index(t)
@@ -140,6 +137,9 @@ public struct Series: Sendable {
         silences.removeAll { $0.upperBound < t }
     }
 }
+
+/// The slot of `resolutionS` seconds that a time falls in, counted from the epoch.
+func slot(_ timeNS: Int64, resolutionS: Int64) -> Int64 { timeNS / (resolutionS * 1_000_000_000) }
 
 extension Date {
     /// As `time_ns` counts: nanoseconds since the epoch.

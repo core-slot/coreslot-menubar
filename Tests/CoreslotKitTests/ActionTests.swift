@@ -16,7 +16,7 @@ private struct Binary {
         try Data("#!/bin/sh\n".utf8).write(to: file)
         link = dir.appending(path: "link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
-        binary = CoreslotBinary(url: file, version: Version(0, 8, 0), protocolFormats: [2])
+        binary = CoreslotBinary(url: file, version: Version(0, 8, 0))
     }
 }
 
@@ -25,12 +25,12 @@ private let longName = "01794508102851040000-0000092760-000004-demo_long"
 private let longPID: pid_t = 92760
 private let admittedS: Int64 = 1_794_508_102
 
-private func status(_ change: (inout [[String: Any]]) -> Void = { _ in }) throws -> Data {
-    var doc = try Fixture.object("status-queue.json")
-    var holds = doc["holds"] as! [[String: Any]]
-    change(&holds)
-    doc["holds"] = holds
-    return try Fixture.encode(doc)
+private func status(_ change: @escaping (inout [[String: Any]]) -> Void = { _ in }) throws -> Data {
+    try Fixture.data("status-queue.json") { doc in
+        var holds = doc["holds"] as! [[String: Any]]
+        change(&holds)
+        doc["holds"] = holds
+    }
 }
 
 /// Answers each run from `answer`, and keeps every argument list it was given.
@@ -226,9 +226,9 @@ private func facts(_ exe: URL, startS: Int64 = admittedS, arguments: [String] = 
     // Mutation: return `.failed(.failed(exitCode: 75))` for 75; no new reading, red.
     @Test func exit75ReadsStatusAgain() async throws {
         let b = try Binary()
-        var doc = try Fixture.object("status-queue.json")
-        doc["tickets"] = (doc["tickets"] as! [[String: Any]]).filter { $0["id"] as? String != id }
-        let after = try Fixture.encode(doc)
+        let after = try Fixture.data("status-queue.json") { doc in
+            doc["tickets"] = (doc["tickets"] as! [[String: Any]]).filter { $0["id"] as? String != id }
+        }
         let fake = FakeRunner { $0.first == "cancel" ? RunResult(exitCode: 75) : RunResult(exitCode: 0, stdout: after) }
         let outcome = await cancel(ticketID: id, using: b.binary, runner: fake.runner)
         #expect(outcome == .refused(interpret(RunResult(exitCode: 0, stdout: after), binary: b.binary)))

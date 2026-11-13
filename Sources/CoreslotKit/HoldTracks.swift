@@ -24,7 +24,7 @@ public struct HoldTracks: Sendable, Equatable {
     }
 
     public mutating func add(_ doc: StatusDocument, at date: Date) {
-        let t = Int64(date.timeIntervalSince1970 * 1e9)
+        let t = date.nanosecondsSince1970
         for h in doc.holds { add(hold: h.name, timeNS: t, footprintMiB: h.footprintMiB) }
     }
 
@@ -53,8 +53,5 @@ public struct HoldTracks: Sendable, Equatable {
     /// The largest footprint seen for the hold; nil when none was.
     public func peak(_ hold: String) -> Int64? { tracks[hold]?.map(\.footprintMiB).max() }
 
-    private func bucket(_ t: Int64) -> Int64 {
-        let res = resolutionS * 1_000_000_000
-        return t >= 0 ? t / res : (t - res + 1) / res
-    }
+    private func bucket(_ t: Int64) -> Int64 { slot(t, resolutionS: resolutionS) }
 }

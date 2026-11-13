@@ -200,11 +200,11 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
     // Mutation: give a failed `status` the state-unreadable words; exit 70 no longer says its
     // status, and the two states read the same, red.
     @Test func eachProblemIsOneStateWithItsFix() {
-        let all: [Problem] = [.notFound, .stateUnreadable(stderr: "x"), .failed(exitCode: 70), .malformed, .timedOut]
+        let all: [Problem] = [.notFound, .stateUnreadable, .failed(exitCode: 70), .malformed, .timedOut]
         let states = all.map { Words.problem($0).state }
         #expect(Set(states).count == all.count)
-        #expect(Words.problem(.stateUnreadable(stderr: "")).state == "coreslot cannot read its state")
-        #expect(Words.problem(.stateUnreadable(stderr: "")).fix.contains("coreslot doctor"))
+        #expect(Words.problem(.stateUnreadable).state == "coreslot cannot read its state")
+        #expect(Words.problem(.stateUnreadable).fix.contains("coreslot doctor"))
         #expect(Words.problem(.failed(exitCode: 70)).state == "coreslot status failed with exit status 70")
         #expect(Words.problem(.notFound).fix.contains("0.8.0"))
     }

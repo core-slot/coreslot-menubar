@@ -26,7 +26,7 @@ public enum AlertText {
                 The process at pid \(pid) runs:
                 \(commandLine(facts.arguments))
 
-                It has run for \(Formatting.duration(Int64(hold.heldForS.rounded()))). It is not restarted: \
+                It has run for \(Formatting.duration(hold.heldForS)). It is not restarted: \
                 it ends as failed, and whoever started it decides what next. \
                 Commands waiting behind it start as memory frees.
                 """,
@@ -37,7 +37,7 @@ public enum AlertText {
         Alert(
             title: "Withdraw the request for \(SafeText.display(ticket.label))?",
             message: """
-                It has waited \(Formatting.duration(Int64(ticket.waitedS.rounded()))). \
+                It has waited \(Formatting.duration(ticket.waitedS)). \
                 Its command does not start: coreslot run gives up with a refusal. \
                 If it is admitted first, withdrawing has no effect.
                 """,
@@ -65,7 +65,7 @@ public enum AlertText {
 
     /// After a refused cancel, what `status` now says of the ticket, in neutral words.
     public static func cancelRefused(ticketID: String, now: StatusReading) -> String {
-        guard case .document(let doc, _) = now, !doc.isSchemaOnly else {
+        guard case .document(let doc, _) = now else {
             return "coreslot did not withdraw the request, and its status cannot be read now."
         }
         return doc.tickets.contains { $0.id == ticketID && $0.state != "dead" }

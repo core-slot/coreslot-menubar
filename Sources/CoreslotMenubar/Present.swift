@@ -49,7 +49,7 @@ enum Present {
         }, result: exit3),
         .init(name: "schema-2", result: { _ in RunResult(exitCode: 0, stdout: Data(#"{"schema": 2}"#.utf8)) }),
         .init(name: "not-found"),
-        .init(name: "state-unreadable", result: { _ in RunResult(exitCode: 3, stderr: Data("state directory: permission denied\n".utf8)) }),
+        .init(name: "state-unreadable", result: { _ in RunResult(exitCode: 3) }),
         .init(name: "exit-64", result: { _ in RunResult(exitCode: 64) }),
         .init(name: "exit-70", result: { _ in RunResult(exitCode: 70) }),
         .init(name: "malformed", result: { _ in RunResult(exitCode: 0, stdout: Data(#"{"schema": 1, "holds": ["#.utf8)) }),
@@ -202,7 +202,7 @@ enum Present {
         let telemetry = fixtures.appending(path: "telemetry-\(v.telemetry)", directoryHint: .isDirectory)
         let then = newest(status: original, telemetry: telemetry)
         let launched = Date()
-        let binary = CoreslotBinary(url: URL(filePath: "/fixture/coreslot"), version: v.version, protocolFormats: [2])
+        let binary = CoreslotBinary(url: URL(filePath: "/fixture/coreslot"), version: v.version)
         let found = v.name != "not-found"
         let runner = Runner { _, args, _, _ -> RunResult in
             switch args.first {
@@ -226,20 +226,20 @@ enum Present {
 
     /// The fixture's newest moment: its last line, or when its status document was read.
     private static func newest(status: Data, telemetry: URL) -> Date {
-        var ns: Int64 = 0
+        var ns: Double = 0
         if let doc = try? StatusDocument.decode(status) {
-            for h in doc.holds { ns = max(ns, h.startNS + Int64(h.heldForS * 1e9)) }
-            for t in doc.tickets { ns = max(ns, t.createdNS + Int64(t.waitedS * 1e9)) }
-            ns = max(ns, doc.reconciledNS)
+            for h in doc.holds { ns = max(ns, Double(h.startNS) + h.heldForS * 1e9) }
+            for t in doc.tickets { ns = max(ns, Double(t.createdNS) + t.waitedS * 1e9) }
+            ns = max(ns, Double(doc.reconciledNS))
         }
         for log in ["telemetry/samples.jsonl", "telemetry/events.jsonl", "log/runs.jsonl"] {
             let text = (try? String(contentsOf: telemetry.appending(path: log), encoding: .utf8)) ?? ""
             for line in text.split(separator: "\n") {
                 let o = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
-                if let t = (o?["time_ns"] as? NSNumber)?.int64Value { ns = max(ns, t) }
+                if let t = (o?["time_ns"] as? NSNumber)?.doubleValue { ns = max(ns, t) }
             }
         }
-        return Date(timeIntervalSince1970: Double(ns) / 1e9)
+        return Date(timeIntervalSince1970: ns / 1e9)
     }
 
     private static func fixturesDirectory(_ args: [String]) -> URL {

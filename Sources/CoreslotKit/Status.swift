@@ -207,7 +207,7 @@ public struct StatusDocument: Decodable, Sendable, Equatable {
         }
     }
 
-    /// Throws `OtherSchema` for a schema other than 1, whatever its other keys.
+    /// Decodes the keys whatever `schema` says; `decode(_:)` is what checks the schema first.
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         (schema, stateDir) = (try c.decode(Int64.self, forKey: .schema), try c.decode(String.self, forKey: .stateDir))
@@ -222,6 +222,7 @@ public struct StatusDocument: Decodable, Sendable, Equatable {
         (ignored, observedS) = (try c.decode([String: Int64].self, forKey: .ignored), try c.decodeSeconds(.observedS))
     }
 
+    /// Throws `OtherSchema` for a schema other than 1, whatever its other keys.
     public static func decode(_ data: Data) throws -> StatusDocument {
         _ = try JSONDecoder().decode(SchemaProbe.self, from: data)
         return try JSONDecoder().decode(StatusDocument.self, from: data)

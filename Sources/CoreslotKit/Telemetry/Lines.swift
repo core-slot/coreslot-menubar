@@ -123,6 +123,9 @@ public struct EventLine: JSONLine, Sendable, Equatable {
 public struct MemoryLine: JSONLine, Sendable, Equatable {
     public let timeNS: Int64
     public let top: [Process]
+    /// The largest of the Docker VM's processes; nil when none runs, or when it does not decode,
+    /// which costs the line nothing.
+    public let vm: Process?
 
     public struct Process: Decodable, Sendable, Equatable {
         public let name: String
@@ -135,7 +138,7 @@ public struct MemoryLine: JSONLine, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, top
+        case v, e, top, vm
         case timeNS = "time_ns"
     }
 
@@ -147,6 +150,7 @@ public struct MemoryLine: JSONLine, Sendable, Equatable {
         }
         timeNS = try c.decode(.timeNS, in: Clamp.time)
         top = try c.decodeIfPresent([Process].self, forKey: .top) ?? []
+        vm = (try? c.decodeIfPresent(Process.self, forKey: .vm)) ?? nil
     }
 }
 
