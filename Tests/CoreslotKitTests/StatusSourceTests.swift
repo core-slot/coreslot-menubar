@@ -50,8 +50,8 @@ private let release = CoreslotBinary(url: URL(filePath: "/bin/sh"), version: Ver
         #expect(interpret(RunResult(exitCode: 0, stdout: Data("{".utf8)), binary: release) == .problem(.malformed))
     }
 
-    // Mutation: drop the schema probe in StatusDocument.decode; the schema-2 document that decodes
-    // is a document, and the one of another shape is .malformed, red.
+    // Mutation: check the schema after the other keys in StatusDocument's init; the one of another
+    // shape is .malformed, red. Mutation: no schema check; the schema-2 document that decodes is a document, red.
     @Test func anotherSchemaIsNoticesOnly() throws {
         let decodable = try Fixture.data("status-queue.json") { $0["schema"] = 2 }
         for data in [decodable, Data(#"{"schema": 2, "queue": []}"#.utf8)] {
@@ -124,7 +124,7 @@ private final class Scripted: Sendable {
     }
 
     func source(find: @escaping @Sendable () -> URL? = { release.url }) -> StatusSource {
-        StatusSource(find: find, environment: nil, runner: runner)
+        StatusSource(find: find, runner: runner)
     }
 }
 

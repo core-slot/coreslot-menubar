@@ -323,11 +323,27 @@ private final class Click: Sendable {
 
     // `.refused` is also what a `coreslot run` started before an upgrade gets: it runs the old file.
     @Test func theRefusalSentences() {
-        #expect(AlertText.refusal(.refused("x")) == "This process could not be confirmed as the command coreslot reports; nothing was sent.")
-        #expect(AlertText.refusal(.gone) != nil && AlertText.refusal(.changed) != nil)
+        let differs = StopCheck.differs(pid: 2, facts: facts(URL(filePath: "/bin/ls")))
+        #expect(AlertText.refusal(.refused("x"))?.alert == "This process could not be confirmed as the command coreslot reports; nothing was sent.")
         // Mutation: give `.differs` the `.refused` sentence; the alert would change, red.
-        #expect(AlertText.refusal(.differs(pid: 2, facts: facts(URL(filePath: "/bin/ls")))) == AlertText.refusal(.changed))
+        #expect(AlertText.refusal(differs)?.alert == AlertText.refusal(.changed)?.alert)
         #expect(AlertText.refusal(.ready(pid: 2, facts: facts(URL(filePath: "/bin/ls")))) == nil)
+        // Mutation: log `.differs` in `.changed`'s words; red. Mutation: mark `.changed` a failure; red.
+        #expect([StopCheck.gone, .changed, differs, .refused("x")].map { AlertText.refusal($0)?.log } == [
+            "the hold is gone", "the hold is no longer stoppable", "the process differs from the one confirmed", "x"])
+        #expect([StopCheck.gone, .changed, differs, .refused("x")].map { AlertText.refusal($0)?.failure } == [false, false, true, true])
+        // Mutation: tell the person of a stop that was sent (`.sent` gets an alert); red.
+        #expect([StopOutcome.sent, .changed(started: nil), .failed(1)].map { AlertText.stopOutcome($0).log } == ["sent", "not sent, the process changed", "failed, errno 1"])
+        #expect(AlertText.stopOutcome(.sent).alert == nil && AlertText.stopOutcome(.changed(started: 1)).alert == AlertText.refusal(.changed)?.alert)
+    }
+
+    // Mutation: say "nothing was withdrawn" of a timeout too; red. Mutation: `Words.problem(p)`,
+    // whose command is `status`; red.
+    @Test func theCancelFailures() {
+        #expect([Problem.notFound, .timedOut, .failed(exitCode: -24), .failed(exitCode: 70)].map(AlertText.cancelFailed) == [
+            "coreslot was not found; nothing was withdrawn.", "coreslot cancel did not answer in time; the request may still be waiting.",
+            "coreslot cancel could not be run (system error 24); nothing was withdrawn.", "coreslot cancel failed with exit status 70; nothing was withdrawn.",
+        ])
     }
 }
 

@@ -44,11 +44,9 @@ final class Store {
     private(set) var record = RecordSnapshot()
     private(set) var recordState: RecordState = .unknown
     private(set) var report: Report?
-    /// Each label's colour, by order of first sight; a new label never repaints the others.
-    private(set) var labelColors: [String: Int] = [:]
-    /// Tickets whose cancel coreslot accepted, until they leave the queue.
-    private(set) var cancelRequested: Set<String> = []
+    private(set) var labelColors = LabelColors()
     /// Holds whose process the app could not read: no stop button, and the quiet line says so.
+    /// Only the popover shows it, so it is read only while the popover is visible.
     private(set) var unchecked: Set<String> = []
     /// Chosen in Settings: another `coreslot` than the one found.
     private(set) var chosenBinary: URL?
@@ -136,6 +134,7 @@ final class Store {
         #endif
         let interval = StatusSource.interval(visible: !visible.isEmpty)
         if on { refreshReport() }
+        if on, surface == .popover { checkHolds() }
         guard let source else { return }
         Task {
             await source.setInterval(interval)
@@ -155,7 +154,7 @@ final class Store {
             switch await cancel(ticketID: ticket.id, using: binary, runner: runner) {
             case .requested:
                 Log.actions.say("cancel requested: ticket \(id)")
-                cancelRequested.insert(ticket.id)
+                await source?.readNow() // `status` lists the request, as it does one made elsewhere
             case .refused(let now):
                 Log.actions.say("cancel refused, exit 75; status now \(LogTransitions.Kind(now).text): ticket \(id)")
                 await ingest(now)
@@ -181,24 +180,19 @@ final class Store {
             // The pid and the start time of one read: the check that ended it, or the last before the signal.
             let who = { (r: (pid: pid_t?, started: Int64?)) in "pid \(r.pid.map(String.init) ?? String(hold.pid)), started \(r.started.map(String.init) ?? "unknown"), hold \(name)" }
             switch end {
-            case .notAsked(let c), .notSent(let c): tell(stop: c, who(c.read))
+            case .notAsked(let c), .notSent(let c):
+                guard let words = AlertText.refusal(c) else { return }
+                Log.actions.say("stop not sent, \(words.log): \(who(c.read))", failure: words.failure)
+                Confirm.tell(words.alert)
             case .declined(let c): Log.actions.say("stop declined: \(who(c.read))")
             case .signalled(let outcome, let c):
-                let words = switch outcome { case .sent: "sent"; case .changed: "not sent, the process changed"; case .failed(let e): "failed, errno \(e)" }
+                let words = AlertText.stopOutcome(outcome)
                 let started = if case .changed(let s) = outcome { s } else { c.read.started }
-                Log.actions.say("stop \(words): SIGTERM to \(who((c.read.pid, started)))", failure: outcome != .sent)
-                if let words = AlertText.stopOutcome(outcome) { Confirm.tell(words) }
+                Log.actions.say("stop \(words.log): SIGTERM to \(who((c.read.pid, started)))", failure: outcome != .sent)
+                if let alert = words.alert { Confirm.tell(alert) }
                 await source?.readNow()
             }
         }
-    }
-
-    /// `who`: our facts, then the name.
-    private func tell(stop c: StopCheck, _ who: String) {
-        let why = switch c { case .gone: "the hold is gone"; case .changed: "the hold is no longer stoppable"; case .ready: ""
-                             case .differs: "the process differs from the one confirmed"; case .refused(let r, _, _): r }
-        Log.actions.say("stop not sent, \(why): \(who)", failure: c != .gone && c != .changed)
-        if let words = AlertText.refusal(c) { Confirm.tell(words) }
     }
 
     /// The one polling loop; a new choice in Settings cancels it from outside and starts another.
@@ -211,7 +205,7 @@ final class Store {
 
     private func newSource() -> StatusSource {
         let (find, chosen) = (feed.find, chosenBinary)
-        return StatusSource(find: { find(chosen) }, environment: nil, runner: runner)
+        return StatusSource(find: { find(chosen) }, runner: runner)
     }
 
     /// The `coreslot` a reading came from, then the reading.
@@ -237,15 +231,14 @@ final class Store {
         transitions.reading(r).forEach(Log.status.say)
         let doc = document
         holdLiveSince = doc?.holds.isEmpty == false ? holdLiveSince ?? at : nil
-        cancelRequested.formIntersection(doc?.tickets.filter { $0.state != "dead" }.map(\.id) ?? [])
-        unchecked = Set((doc?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name))
+        if visible.contains(.popover) { checkHolds() }
         let dir = feed.stateDir ?? doc.flatMap { $0.stateDir.isEmpty ? nil : URL(filePath: $0.stateDir, directoryHint: .isDirectory) }
         let snapshot = await reader.update(stateDir: dir, doc: doc, at: at)
         if snapshot.newSamples > 0 { lastSample = at }
         record = snapshot
         transitions.read(errors: snapshot.errors).forEach(Log.telemetry.say)
         let labels = (doc?.holds.map(\.label) ?? []) + (doc?.tickets.map(\.label) ?? []) + snapshot.runs.attempts.values.map(\.label)
-        for label in labels where labelColors[label] == nil { labelColors[label] = labelColors.count }
+        labelColors.see(labels, at: at)
         recordState = feed.record ?? RecordState(now: at, lastSample: lastSample, holdLiveSince: holdLiveSince)
         #if DEBUG
         let summary = doc.map { "holds \($0.holds.count) tickets \($0.tickets.count) attempts \(snapshot.runs.attempts.count)" } ?? "no document"
@@ -259,6 +252,8 @@ final class Store {
         }
         #endif
     }
+
+    private func checkHolds() { unchecked = Set((document?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name)) }
 
     /// `coreslot report --days 1 --json`, at most once a minute: coreslot does the counting.
     private func refreshReport() {
@@ -335,7 +330,7 @@ actor RecordReader {
             if let r = RunLogLine(line: line), r.timeNS >= cutNS { snapshot.finished.append(r) }
         }
         snapshot.finished.removeAll { $0.timeNS < cutNS }
-        snapshot.runs.prune(endedBefore: cut)
+        snapshot.runs.prune(endedBefore: cut, live: doc)
         if let doc {
             snapshot.tracks.add(doc, at: at)
             snapshot.tracks.keep(only: Set(doc.holds.map(\.name)))

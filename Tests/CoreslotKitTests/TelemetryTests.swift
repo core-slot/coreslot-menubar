@@ -296,13 +296,13 @@ extension JSONLTail {
     }
 
     // Mutation: keep the ticket index whole (drop its filter); "t1" still names a key, red.
-    // Mutation: drop an attempt with no end too (`?? false`); the waiting attempt goes, red.
+    // Mutation: drop every attempt with no end (`?? false`); the waiting attempt goes, red.
     @Test func pruneDropsOnlyWhatEndedBeforeTheDate() {
         var runs = Runs()
         for (run, ticket) in [("old", "t1"), ("late", "t2"), ("live", "t3")] { runs.apply(line(run, 1, 1, enqueue(ticket))) }
         runs.apply(line("old", 1, 5, .waitEnded("cancelled")))
         runs.apply(line("late", 1, 20, .waitEnded("refused")))
-        runs.prune(endedBefore: Date(timeIntervalSince1970: 10))
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 10), live: nil)
         #expect(runs.byTicket["t1"] == nil && runs.attempts.count == 2)
         #expect(runs.waiting(ticketName: "t2")?.end?.event == "refused" && runs.waiting(ticketName: "t3")?.end == nil)
     }
@@ -315,8 +315,30 @@ extension JSONLTail {
         runs.apply(line("a", 1, 1, enqueue("t1")))
         runs.apply(line("a", 1, 10, .waiting(.init(reason: "room_short"))))
         runs.apply(line("a", 1, 90, .waiting(.init(reason: "room_short"))))
-        runs.prune(endedBefore: Date(timeIntervalSince1970: 100))
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 100), live: nil)
         #expect(runs.heads.map(\.timeNS) == [90_000_000_000])
+    }
+
+    /// `status` listing one hold, `h2`, and no ticket.
+    private let listing = try! StatusDocument.decode(Fixture.data("status-queue.json") { d in (d["holds"], d["tickets"]) = ([(d["holds"] as! [[String: Any]])[0].merging(["name": "h2"]) { $1 }], []) })
+
+    // Mutation: keep every attempt with no end (`?? true`); the lost one stays, red. Mutation: drop
+    // the `listed` check; the run `status` lists goes, red. Mutation: judge by the first line
+    // (`a.arrivalNS ?? 0` for `a.lastNS`); the wait with a recent line goes, red. Mutation: with no
+    // document judge by the age alone; red. Mutation: drop the minute (forget at the first read that
+    // does not list it); "ends", whose `ended` comes after its hold's release, loses its start, red.
+    @Test func pruneDropsAnAttemptWithNoEndOnceItIsLost() throws {
+        var runs = Runs()
+        for (run, ticket) in [("lost", "t1"), ("long", "t2"), ("waits", "t3"), ("ends", "t4")] { runs.apply(line(run, 1, 1, enqueue(ticket))) }
+        for (run, hold) in [("long", "h2"), ("ends", "h4")] { runs.apply(line(run, 1, 2, .admitted(hold))) }
+        runs.apply(line("waits", 1, 80, .waiting(.init(reason: "room_short"))))
+        var unread = runs
+        unread.prune(endedBefore: Date(timeIntervalSince1970: 70), live: nil)
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 10), live: listing)
+        runs.apply(try event("ended", 75, "", run: "ends"))
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 70), live: listing)
+        #expect(Set(runs.attempts.keys.map(\.run)) == ["long", "waits", "ends"] && runs.byTicket["t1"] == nil && unread.attempts.count == 4)
+        #expect(runs.waiting(ticketName: "t4").map { [$0.arrivalNS, $0.admittedNS] } == [1_000_000_000, 2_000_000_000])
     }
 
     // Mutation: take a line with `ahead` as the head's; the head's stretch is cut at 20 s, red.
@@ -369,16 +391,21 @@ extension JSONLTail {
     }
 
     // Mutation: decode the kind from another key; the pass-through is an attempt with no start, red.
-    // Mutation: drop `passThroughs.contains(key)`; its `ended` line makes it an attempt, red.
-    // Mutation: drop `passThroughs.remove(key)`; a later attempt line of that key is dropped too, red.
+    // Mutation: return only on its own `outside` line; its `ended` line makes it an attempt, red.
+    // Mutation: drop `passThroughs[key] = nil` on `ended`; a later attempt line of that key is dropped too, red.
+    // Mutation: leave the pass-throughs out of `prune`; "killed", which never ended, stays, red.
+    // Mutation: forget a pass-through by its age alone, or read its parent from `hold`; "inside" becomes an attempt, red.
     @Test func aPassThroughHasNoAttemptOfItsOwn() throws {
         var runs = Runs()
-        runs.apply(try event("outside", 1, #","kind":"pass_through","reason":"parent_hold","need_mib":4096,"parent":"h0""#, run: "child"))
+        for run in ["killed", "child"] { runs.apply(try event("outside", 1, #","kind":"pass_through","reason":"parent_hold","need_mib":4096,"parent":"h0""#, run: run)) }
+        runs.apply(try event("outside", 1, #","kind":"pass_through","parent":"h2""#, run: "inside"))
         #expect(runs.attempts.isEmpty)
         runs.apply(try event("ended", 2, #","record":{"time_ns":1000000000,"label":"demo:child","waited_s":0,"ran_s":1.011,"mem_peak_kib":1008,"exit":0,"fail_open":""}"#, run: "child"))
         #expect(runs.attempts.isEmpty)
-        runs.apply(try event("admitted", 3, #","hold":"h2""#, run: "child"))
-        #expect(runs.attempts.count == 1)
+        for s in [2.0, 62] { runs.prune(endedBefore: Date(timeIntervalSince1970: s), live: listing) }
+        runs.apply(try event("ended", 63, "", run: "inside"))
+        runs.apply(try event("admitted", 70, #","hold":"h2""#, run: "child"))
+        #expect(runs.attempts.count == 1 && runs.passThroughs.isEmpty)
     }
 
     // Mutation: record the ticket from the waiting line instead of `enqueue`; nothing is found, red.

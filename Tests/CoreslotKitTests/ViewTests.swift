@@ -151,14 +151,14 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
     // Mutation: leave the format error out of its sentence; red.
     // Mutation: say "newer than this app" for every other schema; schema 0, red.
     @Test func theNotices() throws {
-        #expect(Words.notice(.tooOld) == "Update coreslot to 0.8.0 or later")
-        #expect(Words.notice(.degraded("lock\u{202E}txt")) == "coreslot is degraded: lock\\u{202E}txt")
-        #expect(Words.notice(.configError("bad\nline")) == "coreslot's configuration has a problem: bad\\u{000A}line")
+        #expect(Words.notice(.tooOld).header == "Update coreslot to 0.8.0 or later")
+        #expect(Words.notice(.degraded("lock\u{202E}txt")).header == "coreslot is degraded: lock\\u{202E}txt")
+        #expect(Words.notice(.configError("bad\nline")).header == "coreslot's configuration has a problem: bad\\u{000A}line")
         let format = "This coreslot does not understand the state directory's format: update or repair coreslot"
-        #expect(Words.notice(.formatNotUnderstood("")) == format)
-        #expect(Words.notice(.formatNotUnderstood("FORMAT: 3\n")) == format + " (FORMAT: 3\\u{000A})")
-        #expect(Words.notice(.schema(2)) == "This coreslot's status document is newer than this app")
-        #expect(Words.notice(.schema(0)) == "This coreslot's status document has a schema this app does not know")
+        #expect(Words.notice(.formatNotUnderstood("")).header == format)
+        #expect(Words.notice(.formatNotUnderstood("FORMAT: 3\n")).header == format + " (FORMAT: 3\\u{000A})")
+        #expect(Words.notice(.schema(2)).header == "This coreslot's status document is newer than this app")
+        #expect(Words.notice(.schema(0)).header == "This coreslot's status document has a schema this app does not know")
     }
 
     // Mutation: drop "on the machine" for a container request; red.
@@ -188,10 +188,10 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(Words.reason(.init(reason: "behind_ticket"), needMiB: 1, realMemory: false, ageS: 5) == "Waits its turn")
     }
 
-    // Mutation: drop the `restart_` case of `reason`, whose table the names reuse; a restart's reason has no name, red.
+    // Mutation: drop the `restart_` row of `Words.reasons`; a restart's reason has no name, red. Mutation: give `behind_head` `room_short`'s tone, red.
     @Test func theReasonsHaveNamesForTheLegend() {
         let codes = ["room_short", "behind_head", "behind_ticket", "section_busy", "watch_level", "watch_spacing", "restart_calm"]
-        #expect(Set(codes.compactMap(Words.reasonName)).count == codes.count)
+        #expect(Set(codes.compactMap(Words.reasonName)).count == codes.count && Set(Words.reasons.map(\.tone)).count == codes.count)
         #expect(Words.reasonName("restart_margin") == Words.reasonName("restart_calm") && Words.reasonName("new_code") == nil)
     }
 
@@ -274,5 +274,20 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
             #expect(s.unicodeScalars.allSatisfy { !hidden.contains($0.properties.generalCategory) && !$0.properties.isDefaultIgnorableCodePoint },
                     "\(Array(s.unicodeScalars))")
         }
+    }
+}
+
+@Suite struct LabelColorsTests {
+    // Mutation: number a new label by the count (`colors.count`); "c" takes "b"'s colour, red.
+    // Mutation: never forget (drop the filter); "a" stays, red. Mutation: forget by first sight (set
+    // `seen` only for a new label); "b", seen 1 s before, goes, red.
+    @Test func aLabelUnseenFor24HoursIsForgottenAndNoColourIsGivenTwice() {
+        var c = LabelColors()
+        let t0 = Date(timeIntervalSince1970: 0), day = LabelColors.forgetS
+        c.see(["a", "b"], at: t0)
+        c.see(["b"], at: t0.addingTimeInterval(day - 1))
+        c.see([], at: t0.addingTimeInterval(day))
+        c.see(["c"], at: t0.addingTimeInterval(day))
+        #expect(c["a"] == nil && c["b"] == 1 && c["c"] == 2 && c.labels == ["b", "c"])
     }
 }

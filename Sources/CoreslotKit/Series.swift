@@ -2,11 +2,11 @@ import Foundation
 
 /// Memory over time at one range's resolution, for the charts. A bucket keeps the one sample with
 /// the most memory in use, whole, so the parts drawn for a moment all come from that moment.
-public struct Series: Sendable {
-    public enum Range: Sendable, CaseIterable {
+package struct Series: Sendable {
+    package enum Range: Sendable, CaseIterable {
         case quarterHour, hour, sixHours, day
 
-        public var spanS: Int64 {
+        package var spanS: Int64 {
             switch self {
             case .quarterHour: 15 * 60
             case .hour: 60 * 60
@@ -15,7 +15,7 @@ public struct Series: Sendable {
             }
         }
 
-        public var resolutionS: Int64 {
+        package var resolutionS: Int64 {
             switch self {
             case .quarterHour: 2
             case .hour: 10
@@ -26,21 +26,21 @@ public struct Series: Sendable {
     }
 
     /// A kept sample as the charts draw it, with `machine_mib` from `status`.
-    public struct Point: Sendable, Equatable {
-        public let timeNS: Int64
+    package struct Point: Sendable, Equatable {
+        package let timeNS: Int64
         /// `machine − headroom`.
-        public let inUseMiB: Int64
-        public let footprintMiB: [String: Int64]
+        package let inUseMiB: Int64
+        package let footprintMiB: [String: Int64]
         /// Memory in use less the footprints, at least 0.
-        public let outsideMiB: Int64
+        package let outsideMiB: Int64
         /// `machine − reserve − room`: in use plus what the holds may still grow into.
-        public let reservedMiB: Int64
+        package let reservedMiB: Int64
     }
 
-    public struct Bucket: Sendable, Equatable {
-        public let startNS: Int64
+    package struct Bucket: Sendable, Equatable {
+        package let startNS: Int64
         /// Nil for a gap: nothing was recorded, or the reading failed. Never zero memory.
-        public let point: Point?
+        package let point: Point?
     }
 
     /// A sample as the series keeps it; `ok` false is a failed reading.
@@ -60,7 +60,7 @@ public struct Series: Sendable {
     /// How far past the caller's now a sample may be dated and still be placed.
     static let aheadNS: Int64 = 60_000_000_000
 
-    public let range: Range
+    package let range: Range
     /// By bucket: the placed sample with the most memory in use.
     private(set) var kept: [Int64: Reading] = [:]
     /// Two bits per slot, 32 slots to a word, by word: a reading was placed there, a failed one was.
@@ -68,9 +68,9 @@ public struct Series: Sendable {
     /// The bucket of the caller's now that the series was last pruned for.
     private var prunedFor: Int64?
 
-    public init(range: Range) { self.range = range }
+    package init(range: Range) { self.range = range }
 
-    public mutating func add(_ s: SampleLine, now: Date) {
+    package mutating func add(_ s: SampleLine, now: Date) {
         add(Reading(
             timeNS: s.timeNS, ok: s.headroomOK, headroomMiB: s.headroomMiB, reserveMiB: s.reserveMiB,
             roomMiB: s.roomMiB, footprintMiB: Dictionary(s.jobs.map { ($0.label, $0.footprintMiB) }, uniquingKeysWith: +)),
@@ -95,7 +95,7 @@ public struct Series: Sendable {
     /// The range's buckets up to `now`, oldest first. A bucket that holds a failed reading, or
     /// none and lies in more than `maxEmptySlots` empty slots in a row, is a gap; one with no
     /// reading among fewer empty slots is left out, and the chart joins its neighbours.
-    public func buckets(machineMiB: Int64, now: Date) -> [Bucket] {
+    package func buckets(machineMiB: Int64, now: Date) -> [Bucket] {
         let nowNS = now.nanosecondsSince1970
         let perBucket = range.resolutionS / Self.slotS
         let (from, to) = (index(nowNS - range.spanS * 1_000_000_000), index(nowNS))
@@ -150,7 +150,7 @@ public struct Series: Sendable {
 /// The series' time rule, which `HoldTracks` follows too: a sample is placed by its own time, in
 /// whatever order it comes, unless it is dated more than `Series.aheadNS` past `nowNS`, the
 /// caller's clock, or more than `spanS` before it.
-public func placed(_ timeNS: Int64, nowNS: Int64, spanS: Int64) -> Bool {
+package func placed(_ timeNS: Int64, nowNS: Int64, spanS: Int64) -> Bool {
     timeNS <= nowNS + Series.aheadNS && timeNS >= nowNS - spanS * 1_000_000_000
 }
 
@@ -159,5 +159,5 @@ func slot(_ timeNS: Int64, resolutionS: Int64) -> Int64 { timeNS / (resolutionS 
 
 extension Date {
     /// As `time_ns` counts: nanoseconds since the epoch.
-    public var nanosecondsSince1970: Int64 { Int64(timeIntervalSince1970 * 1e9) }
+    package var nanosecondsSince1970: Int64 { Int64(timeIntervalSince1970 * 1e9) }
 }

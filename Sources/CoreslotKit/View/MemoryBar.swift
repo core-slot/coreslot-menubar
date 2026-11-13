@@ -1,8 +1,8 @@
 import Foundation
 
 /// The bar of the whole machine from one `status` reading: only sums and differences of its keys.
-public struct MemoryBar: Sendable, Equatable {
-    public enum Kind: Sendable, Equatable {
+package struct MemoryBar: Sendable, Equatable {
+    package enum Kind: Sendable, Equatable {
         /// A hold's footprint; the footprints add up to no more than memory in use.
         case hold(name: String, label: String)
         /// Memory in use less the footprints.
@@ -12,20 +12,20 @@ public struct MemoryBar: Sendable, Equatable {
         case setAside, room, reserve
     }
 
-    public struct Segment: Sendable, Equatable {
-        public let kind: Kind
-        public let mib: Int64
+    package struct Segment: Sendable, Equatable {
+        package let kind: Kind
+        package let mib: Int64
     }
 
     /// Left to right; together they are the machine's memory.
-    public let segments: [Segment]
+    package let segments: [Segment]
     /// `-room_mib` when the holds reserve more than the machine offers; the set-aside segment is
     /// then cut to what free memory has.
-    public let shortfallMiB: Int64?
+    package let shortfallMiB: Int64?
     /// `headroom_mib − reserve_mib − room_mib` unclipped, for the legend: "set aside X, Y short".
-    public let setAsideMiB: Int64
+    package let setAsideMiB: Int64
 
-    public init?(_ doc: StatusDocument) {
+    package init?(_ doc: StatusDocument) {
         guard let m = doc.mem, let machine = m.machineMiB, let headroom = m.headroomMiB,
               let reserve = m.reserveMiB, let room = m.roomMiB
         else { return nil }

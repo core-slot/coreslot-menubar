@@ -11,7 +11,7 @@ import Foundation
 // word, so the start check guards against a reused pid under an honest hold; against a forged
 // hold the executable and the command line are what count. On any doubt nothing is sent.
 
-public enum StopCheck: Sendable, Equatable {
+package enum StopCheck: Sendable, Equatable {
     case ready(pid: pid_t, facts: ProcessFacts)
     /// No live hold has the name: the command ended.
     case gone
@@ -24,13 +24,13 @@ public enum StopCheck: Sendable, Equatable {
     case refused(String, pid: pid_t? = nil, started: Int64? = nil)
 
     /// The pid this check read and its process's start time, each when read: a log line prints the two together.
-    public var read: (pid: pid_t?, started: Int64?) {
+    package var read: (pid: pid_t?, started: Int64?) {
         switch self { case .ready(let p, let f), .differs(let p, let f): (p, f.startSeconds); case .refused(_, let p, let s): (p, s); case .gone, .changed: (nil, nil) }
     }
 }
 
 /// How a stop ended; each carries the check that ended it.
-public enum StopEnd: Sendable, Equatable {
+package enum StopEnd: Sendable, Equatable {
     /// The first check did not pass: nothing was asked.
     case notAsked(StopCheck)
     /// The person was shown the `.ready` check and said no.
@@ -44,7 +44,7 @@ public enum StopEnd: Sendable, Equatable {
 /// The order of a stop: check, ask about the process checked, check again, and only for the same
 /// pid with the same facts as were shown, `sendStop`, which reads the facts once more. `ask` shows
 /// the pid and facts and says whether the person confirmed.
-public func stop(
+package func stop(
     holdName: String, using binary: CoreslotBinary, runner: Runner, inspector: any ProcessInspector,
     ask: @Sendable (pid_t, ProcessFacts) async -> Bool, signal: (pid_t, Int32) -> Int32
 ) async -> StopEnd {
@@ -57,7 +57,7 @@ public func stop(
     return .signalled(sendStop(again, inspector: inspector, signal: signal), again)
 }
 
-public enum StopOutcome: Sendable, Equatable {
+package enum StopOutcome: Sendable, Equatable {
     /// `changed`: nothing sent; `started`: the start time the facts read right before the signal give, when read.
     case sent, changed(started: Int64?), failed(Int32)
 }
@@ -68,11 +68,10 @@ public enum StopOutcome: Sendable, Equatable {
 let startSlackS: Int64 = 2
 
 /// Reads `status` again and checks the hold's process; `.ready` only when every check passes.
-public func prepareStop(
+package func prepareStop(
     holdName: String, using binary: CoreslotBinary, runner: Runner, inspector: any ProcessInspector
 ) async -> StopCheck {
-    let r = await runner.run(binary.url, ["status", "--json"], environment: nil, timeout: StatusSource.statusTimeout)
-    guard case .document(let doc, _) = interpret(r, binary: binary) else {
+    guard case .document(let doc, _) = await readStatus(binary, runner: runner) else {
         return .refused("status could not be read")
     }
     guard let hold = doc.holds.first(where: { $0.name == holdName }) else { return .gone }
@@ -91,7 +90,7 @@ public func prepareStop(
 
 /// Whether the hold's process can be read at all; status has no key for that, and when it cannot,
 /// the hold's quiet line says so.
-public func canInspect(_ hold: StatusDocument.Hold, inspector: any ProcessInspector) -> Bool {
+package func canInspect(_ hold: StatusDocument.Hold, inspector: any ProcessInspector) -> Bool {
     pid(of: hold).map { inspector.facts($0) != nil } ?? false
 }
 
@@ -100,14 +99,14 @@ private func pid(of hold: StatusDocument.Hold) -> pid_t? { (2...Int64(Int32.max)
 
 /// The check run again after the person confirmed `shown`: it stands only for the same pid with
 /// the same facts, the command line they saw included; else `.differs`, with what it read.
-public func recheck(_ again: StopCheck, shown: StopCheck) -> StopCheck {
+package func recheck(_ again: StopCheck, shown: StopCheck) -> StopCheck {
     guard case .ready(let pid, let facts) = again, again != shown else { return again }
     return .differs(pid: pid, facts: facts)
 }
 
 /// `SIGTERM` to a `.ready` pid whose facts are still the ones checked; `signal` sends and returns
 /// 0 or the errno.
-public func sendStop(_ c: StopCheck, inspector: any ProcessInspector, signal: (pid_t, Int32) -> Int32) -> StopOutcome {
+package func sendStop(_ c: StopCheck, inspector: any ProcessInspector, signal: (pid_t, Int32) -> Int32) -> StopOutcome {
     guard case .ready(let pid, let facts) = c else { return .changed(started: nil) }
     let now = inspector.facts(pid)
     guard now == facts else { return .changed(started: now?.startSeconds) }

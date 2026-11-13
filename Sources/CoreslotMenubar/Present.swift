@@ -146,6 +146,7 @@ enum Present {
                     continue
                 }
                 let store = Store(feed: feed(variants.first { $0.name == name }!, fixtures: fixtures, live: false))
+                store.setVisible(.popover, true)
                 await store.readOnce()
                 show(PopoverView(store: store, openTimeline: {}).environment(\.revealsRowActions, true), kind: "popover", name: name, at: i)
             }
@@ -281,7 +282,7 @@ enum Present {
             Confirm.make(AlertText.stop(hold, pid: pid_t(hold.pid), facts: ProcessFacts(
                 executable: FixtureInspector.root, startSeconds: 0, arguments: args)))
         case "alert-cancel": Confirm.make(AlertText.cancel(ticket))
-        default: Confirm.make(AlertText.refusal(.refused(""))!)
+        default: Confirm.make(AlertText.refusal(.refused(""))!.alert)
         }
         // The modal loop runs inside this task, so the main queue waits; a timer of its mode does not.
         // The window on screen is not `alert.window` but one the system draws for it: this
@@ -403,7 +404,8 @@ enum Present {
         if let doc = try? StatusDocument.decode(status) {
             for h in doc.holds { ns = max(ns, Double(h.startNS) + h.heldForS * 1e9) }
             for t in doc.tickets { ns = max(ns, Double(t.createdNS) + t.waitedS * 1e9) }
-            ns = max(ns, Double(doc.reconciledNS))
+            let top = (try? JSONSerialization.jsonObject(with: status)) as? [String: Any] // the app decodes no `reconciled_ns`
+            ns = max(ns, (top?["reconciled_ns"] as? NSNumber)?.doubleValue ?? 0)
         }
         for log in ["telemetry/samples.jsonl", "telemetry/events.jsonl", "log/runs.jsonl"] {
             let text = (try? String(contentsOf: telemetry.appending(path: log), encoding: .utf8)) ?? ""

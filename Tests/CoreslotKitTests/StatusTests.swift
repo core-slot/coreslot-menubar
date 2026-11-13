@@ -75,29 +75,36 @@ enum Fixture {
         #expect(mem.roomMiB == nil && mem.freeMiB == 205)
     }
 
-    // Mutation: spell Degraded's `first_ns` as `firstNS`; red, since only this case has a record.
+    // Mutation: spell Degraded's `reason` key `reasons`; red, since only this case has a record.
     @Test func anUnknownKeyAtEveryLevelDecodes() throws {
         let extra: [String: Any] = ["later": ["a": [1, "b", NSNull()]]]
         let data = try Fixture.data("status-queue.json") { doc in
             doc.merge(extra) { a, _ in a }
-            doc["degraded"] = ["reason": "r", "first_ns": 1, "count": 2, "malformed": false].merging(extra) { a, _ in a }
-            doc["section"] = [
-                "held": true,
-                "holder": ["pid": 4, "entered_ns": 5, "held_for_s": 0.5, "alive": true].merging(extra) { a, _ in a },
-            ].merging(extra) { a, _ in a }
+            doc["degraded"] = ["reason": "r", "first_ns": 1].merging(extra) { a, _ in a }
             for key in ["mem", "watch"] {
                 doc[key] = (doc[key] as! [String: Any]).merging(extra) { a, _ in a }
             }
             for key in ["holds", "tickets"] {
                 doc[key] = (doc[key] as! [[String: Any]]).map { $0.merging(extra) { a, _ in a } }
             }
-            doc["ignored"] = (doc["ignored"] as! [String: Any]).merging(["later": 7]) { a, _ in a }
         }
         let decoded = try StatusDocument.decode(data)
-        #expect(decoded.degraded == .init(reason: "r", firstNS: 1, count: 2, malformed: false))
-        #expect(decoded.section.holder?.pid == 4 && decoded.section.holder?.alive == true)
+        #expect(decoded.degraded == .init(reason: "r"))
         #expect(decoded.holds.count == 2 && decoded.tickets.count == 2)
-        #expect(decoded.ignored["later"] == 7)
+    }
+
+    // Mutation: decode `cancel_requests` with `decode`, so it is required again; red.
+    @Test func theKeysTheAppDoesNotNeedMayBeAbsent() throws {
+        let absent = ["state_dir_exists", "format", "format_present", "gen", "reconciled_ns", "section", "dead_holds", "cancel_requests", "ignored", "observed_s"]
+        let decoded = try StatusDocument.decode(Fixture.data("status-queue.json") { doc in absent.forEach { doc[$0] = nil } })
+        #expect(decoded.cancelRequests.isEmpty && decoded.tickets.count == 2)
+    }
+
+    // A cancel made in a terminal is in `cancel_requests` as the ticket's id, as `coreslot cancel` printed it.
+    // Mutation: decode `cancel_requests` from `dead_holds`; red.
+    @Test func aCancelMadeElsewhereIsRead() throws {
+        let doc = try StatusDocument.decode(Fixture.data("status-queue.json") { $0["cancel_requests"] = [($0["tickets"] as! [[String: Any]])[1]["id"]!] })
+        #expect(doc.cancelRequests == [doc.tickets[1].id] && doc.tickets.map(\.position) == [1, 2])
     }
 
     // Mutation: decode a hold's `footprint_mib` unclamped (`c.decode(Int64.self, …)`); red.
@@ -118,8 +125,7 @@ enum Fixture {
     @Test func aPidBeyondInt32Decodes() throws {
         let decoded = try StatusDocument.decode(Fixture.data("status-queue.json") { doc in
             doc["holds"] = (doc["holds"] as! [[String: Any]]).map { $0.merging(["pid": 9_999_999_999]) { _, b in b } }
-            doc["tickets"] = (doc["tickets"] as! [[String: Any]]).map { $0.merging(["pid": 9_999_999_999]) { _, b in b } }
         })
-        #expect(decoded.holds.map(\.pid) == [9_999_999_999, 9_999_999_999] && decoded.tickets.map(\.pid) == [9_999_999_999, 9_999_999_999])
+        #expect(decoded.holds.map(\.pid) == [9_999_999_999, 9_999_999_999])
     }
 }

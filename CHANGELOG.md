@@ -23,6 +23,8 @@ All notable changes to this project are recorded here. The format follows
 - Polling: a coreslot missing at one poll no longer leaves a second poller running for the life of
   the app, and a coreslot replaced or overwritten in place has its version read again.
 - A coreslot whose version line lists several protocol formats no longer reads as not found.
+- A request withdrawn in a terminal, or before the app was relaunched, shows "Cancel requested"
+  as one withdrawn from the popover does: the app reads coreslot's pending cancels.
 - The timeline says "past its usual time" and "no estimate" as the popover does, draws no start
   for an expected wait of 0, draws a run that went ahead when its wait timed out (`--on-timeout run`)
   as running from then, and leaves out pass-through runs.

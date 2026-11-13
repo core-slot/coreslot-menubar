@@ -6,12 +6,12 @@ import Foundation
 ///
 /// It holds no file open between calls: each read opens the files by path and compares the
 /// device and inode it remembers, so a rotated file is finished by name as the older generation.
-public struct JSONLTail: Sendable {
+package struct JSONLTail: Sendable {
     /// How much of the two generations, taken as one, the first read takes at most.
     static let firstOpenWindow: Int64 = 64 << 20
 
-    public let current: URL
-    public let older: URL
+    package let current: URL
+    package let older: URL
     private var opened = false
     private var file: FileID?
     /// Where the current file is read next; 0 while `file` is nil.
@@ -22,27 +22,27 @@ public struct JSONLTail: Sendable {
     /// Bytes up to the next newline are dropped: a line cut by a start mid-file, or too long.
     private var skipping = false
     /// True when the last `read` reached the end of what is there now; false, call again.
-    public private(set) var atEnd = false
+    package private(set) var atEnd = false
 
     /// The first read starts `firstOpenWindow` bytes before the end of the older generation and
     /// the current file taken as one; the caller drops lines older than it wants as it parses.
-    public init(current: URL, older: URL) {
+    package init(current: URL, older: URL) {
         (self.current, self.older) = (current, older)
     }
 
     /// The logs of a state directory, each with its older generation.
-    public enum Log: String, Sendable {
+    package enum Log: String, Sendable {
         case samples = "telemetry/samples", events = "telemetry/events", runs = "log/runs"
     }
 
-    public init(stateDir: URL, log: Log) {
+    package init(stateDir: URL, log: Log) {
         self.init(current: stateDir.appending(path: log.rawValue + ".jsonl"), older: stateDir.appending(path: log.rawValue + ".1.jsonl"))
     }
 
     /// Complete lines appended since the last call, at most `maxBytes` of them in all, from at most
     /// `maxBytes` bytes read. No lines with `atEnd` false means: call again. A last line without
     /// its newline is held; a line longer than `maxBytes` is skipped.
-    public mutating func read(maxBytes: Int) throws -> [Data] {
+    package mutating func read(maxBytes: Int) throws -> [Data] {
         precondition(maxBytes > 0)
         if !opened {
             try firstOpen()
@@ -186,7 +186,7 @@ public struct JSONLTail: Sendable {
 }
 
 /// A file by device and inode: the tail's rotation check, and the stop's executable check.
-public struct FileID: Equatable, Sendable {
+package struct FileID: Equatable, Sendable {
     let device: Int64
     let inode: UInt64
 
@@ -195,7 +195,7 @@ public struct FileID: Equatable, Sendable {
     init(_ st: stat) { self.init(device: Int64(st.st_dev), inode: UInt64(st.st_ino)) }
 
     /// The file at `url`, symlinks followed; nil when there is none.
-    public init?(_ url: URL) {
+    package init?(_ url: URL) {
         var st = stat()
         guard stat(url.path, &st) == 0 else { return nil }
         self.init(st)

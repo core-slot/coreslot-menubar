@@ -5,28 +5,28 @@ import Foundation
 // schema `v` other than 1 is skipped, an unknown key is ignored, a line that does not parse is nil.
 
 /// A line of a JSON-lines log: nil when it does not parse.
-public protocol JSONLine: Decodable {}
+package protocol JSONLine: Decodable {}
 
 extension JSONLine {
-    public init?(line: Data) {
+    package init?(line: Data) {
         guard let v = try? JSONDecoder().decode(Self.self, from: line) else { return nil }
         self = v
     }
 }
 
 /// One line of `samples.jsonl`.
-public struct SampleLine: JSONLine, Sendable, Equatable {
-    public let timeNS: Int64
-    public let headroomOK: Bool
-    public let headroomMiB: Int64
-    public let reserveMiB: Int64
-    public let roomMiB: Int64
-    public let jobs: [Job]
+package struct SampleLine: JSONLine, Sendable, Equatable {
+    package let timeNS: Int64
+    package let headroomOK: Bool
+    package let headroomMiB: Int64
+    package let reserveMiB: Int64
+    package let roomMiB: Int64
+    package let jobs: [Job]
 
-    public struct Job: Decodable, Sendable, Equatable {
-        public let hold: String
-        public let label: String
-        public let footprintMiB: Int64
+    package struct Job: Decodable, Sendable, Equatable {
+        package let hold: String
+        package let label: String
+        package let footprintMiB: Int64
 
         enum CodingKeys: String, CodingKey {
             case hold, label
@@ -46,15 +46,15 @@ public struct SampleLine: JSONLine, Sendable, Equatable {
 }
 
 /// One line of a run in `events.jsonl`; the machine-wide lines, which name no run, are not.
-public struct EventLine: JSONLine, Sendable, Equatable {
-    public let run: String
-    public let attempt: Int64
-    public let n: Int64
-    public let timeNS: Int64
-    public let label: String
-    public let kind: Kind
+package struct EventLine: JSONLine, Sendable, Equatable {
+    package let run: String
+    package let attempt: Int64
+    package let n: Int64
+    package let timeNS: Int64
+    package let label: String
+    package let kind: Kind
 
-    public enum Kind: Sendable, Equatable {
+    package enum Kind: Sendable, Equatable {
         case enqueue(Enqueue)
         case waiting(Waiting)
         /// With the hold's name.
@@ -63,17 +63,17 @@ public struct EventLine: JSONLine, Sendable, Equatable {
         /// A line that ended the wait without a start, by its name: `cancelled`, `interrupted`,
         /// `refused`, `timeout` or `not_started`.
         case waitEnded(String)
-        /// The command started outside the budget; true for a pass-through inside a parent's grant.
-        case outside(passThrough: Bool)
+        /// The command started outside the budget; for a pass-through, its parent's hold ("" if unnamed).
+        case outside(passThroughOf: String?)
         /// An event this app does not use, by its name.
         case other(String)
     }
 
-    public struct Enqueue: Decodable, Sendable, Equatable {
-        public let ticket: String
-        public let typicalS: Int64
-        public let realMemory: Bool
-        public let needMiB: Int64
+    package struct Enqueue: Decodable, Sendable, Equatable {
+        package let ticket: String
+        package let typicalS: Int64
+        package let realMemory: Bool
+        package let needMiB: Int64
 
         enum CodingKeys: String, CodingKey {
             case ticket
@@ -83,13 +83,13 @@ public struct EventLine: JSONLine, Sendable, Equatable {
         }
     }
 
-    public struct Waiting: Decodable, Sendable, Equatable {
-        public let reason: String
-        public let noPass: String?
+    package struct Waiting: Decodable, Sendable, Equatable {
+        package let reason: String
+        package let noPass: String?
         /// The ticket examined ahead of it; absent for the head.
-        public let ahead: String?
+        package let ahead: String?
         /// Absent when the waiter's snapshot failed.
-        public let roomMiB: Int64?
+        package let roomMiB: Int64?
 
         enum CodingKeys: String, CodingKey {
             case reason
@@ -98,19 +98,19 @@ public struct EventLine: JSONLine, Sendable, Equatable {
             case roomMiB = "room_mib"
         }
 
-        public init(reason: String, noPass: String? = nil, ahead: String? = nil, roomMiB: Int64? = nil) {
+        package init(reason: String, noPass: String? = nil, ahead: String? = nil, roomMiB: Int64? = nil) {
             (self.reason, self.noPass, self.ahead, self.roomMiB) = (reason, noPass, ahead, roomMiB)
         }
     }
 
-    public struct Ended: Decodable, Sendable, Equatable {
-        public let failOpen: String?
-        public let stoppedBy: String?
+    package struct Ended: Decodable, Sendable, Equatable {
+        package let failOpen: String?
+        package let stoppedBy: String?
         /// The signal that killed the command, by name.
-        public let signal: String?
+        package let signal: String?
         /// The attempt's run-log line, for its exit status and peak; nil when it does not decode,
         /// which costs the line nothing.
-        public let record: RunLogLine?
+        package let record: RunLogLine?
 
         enum CodingKeys: String, CodingKey {
             case failOpen = "fail_open"
@@ -118,7 +118,7 @@ public struct EventLine: JSONLine, Sendable, Equatable {
             case signal, record
         }
 
-        public init(from decoder: any Decoder) throws {
+        package init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             (failOpen, stoppedBy) = (try c.decodeIfPresent(String.self, forKey: .failOpen), try c.decodeIfPresent(String.self, forKey: .stoppedBy))
             signal = try c.decodeIfPresent(String.self, forKey: .signal)
@@ -127,22 +127,22 @@ public struct EventLine: JSONLine, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, run, attempt, n, label, hold, kind
+        case v, e, run, attempt, n, label, hold, kind, parent
         case timeNS = "time_ns"
     }
 }
 
 /// The machine-wide `memory` line of `events.jsonl`: the largest processes, by name.
-public struct MemoryLine: JSONLine, Sendable, Equatable {
-    public let timeNS: Int64
-    public let top: [Process]
+package struct MemoryLine: JSONLine, Sendable, Equatable {
+    package let timeNS: Int64
+    package let top: [Process]
     /// The largest of the Docker VM's processes; nil when none runs, or when it does not decode,
     /// which costs the line nothing.
-    public let vm: Process?
+    package let vm: Process?
 
-    public struct Process: Decodable, Sendable, Equatable {
-        public let name: String
-        public let footprintMiB: Int64
+    package struct Process: Decodable, Sendable, Equatable {
+        package let name: String
+        package let footprintMiB: Int64
 
         enum CodingKeys: String, CodingKey {
             case name
@@ -155,7 +155,7 @@ public struct MemoryLine: JSONLine, Sendable, Equatable {
         case timeNS = "time_ns"
     }
 
-    public init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try c.checkSchema(.v)
         guard try c.decode(String.self, forKey: .e) == "memory" else {
@@ -168,7 +168,7 @@ public struct MemoryLine: JSONLine, Sendable, Equatable {
 }
 
 extension SampleLine {
-    public init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try c.checkSchema(.v)
         (timeNS, headroomOK) = (try c.decode(.timeNS, in: Clamp.time), try c.decode(Bool.self, forKey: .headroomOK))
@@ -180,7 +180,7 @@ extension SampleLine {
 }
 
 extension EventLine {
-    public init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try c.checkSchema(.v)
         run = try c.decode(String.self, forKey: .run)
@@ -193,7 +193,7 @@ extension EventLine {
         case "waiting": kind = .waiting(try Waiting(from: decoder))
         case "admitted": kind = .admitted(try c.decodeIfPresent(String.self, forKey: .hold))
         case "ended": kind = .ended(try Ended(from: decoder))
-        case "outside": kind = .outside(passThrough: try c.decodeIfPresent(String.self, forKey: .kind) == "pass_through")
+        case "outside": kind = .outside(passThroughOf: try c.decodeIfPresent(String.self, forKey: .kind) == "pass_through" ? c.decodeIfPresent(String.self, forKey: .parent) ?? "" : nil)
         case let e where ["cancelled", "interrupted", "refused", "timeout", "not_started"].contains(e): kind = .waitEnded(e)
         case let e: kind = .other(e)
         }
@@ -201,7 +201,7 @@ extension EventLine {
 }
 
 extension SampleLine.Job {
-    public init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         (hold, label) = (try c.decode(String.self, forKey: .hold), try c.decode(String.self, forKey: .label))
         footprintMiB = try c.decode(.footprintMiB, in: Clamp.amount)
@@ -209,7 +209,7 @@ extension SampleLine.Job {
 }
 
 extension EventLine.Enqueue {
-    public init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         (ticket, realMemory) = (try c.decode(String.self, forKey: .ticket), try c.decode(Bool.self, forKey: .realMemory))
         (typicalS, needMiB) = (try c.decode(.typicalS, in: Clamp.amount), try c.decode(.needMiB, in: Clamp.amount))
@@ -217,7 +217,7 @@ extension EventLine.Enqueue {
 }
 
 extension EventLine.Waiting {
-    public init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             reason: try c.decode(String.self, forKey: .reason), noPass: try c.decodeIfPresent(String.self, forKey: .noPass),
@@ -226,7 +226,7 @@ extension EventLine.Waiting {
 }
 
 extension MemoryLine.Process {
-    public init(from decoder: any Decoder) throws {
+    package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         (name, footprintMiB) = (try c.decode(String.self, forKey: .name), try c.decode(.footprintMiB, in: Clamp.amount))
     }

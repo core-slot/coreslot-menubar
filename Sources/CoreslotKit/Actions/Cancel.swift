@@ -1,6 +1,6 @@
 import Foundation
 
-public enum CancelOutcome: Sendable, Equatable {
+package enum CancelOutcome: Sendable, Equatable {
     /// coreslot published the request; the ticket's owner finds it on its next poll.
     case requested
     /// Exit 75, which has several causes: `status` read again, to say what it now sees.
@@ -9,14 +9,13 @@ public enum CancelOutcome: Sendable, Equatable {
 }
 
 /// `coreslot cancel -- <id>`: the `--` keeps an id from the state directory from reading as a flag.
-public func cancel(ticketID: String, using binary: CoreslotBinary, runner: Runner) async -> CancelOutcome {
+package func cancel(ticketID: String, using binary: CoreslotBinary, runner: Runner) async -> CancelOutcome {
     let r = await runner.run(binary.url, ["cancel", "--", ticketID], environment: nil, timeout: .seconds(5))
     if r.timedOut { return .failed(.timedOut) }
     switch r.exitCode {
     case 0: return .requested
     case 75:
-        let s = await runner.run(binary.url, ["status", "--json"], environment: nil, timeout: StatusSource.statusTimeout)
-        return .refused(interpret(s, binary: binary))
+        return .refused(await readStatus(binary, runner: runner))
     case nil: return .failed(.notFound)
     case let code?: return .failed(.failed(exitCode: code))
     }

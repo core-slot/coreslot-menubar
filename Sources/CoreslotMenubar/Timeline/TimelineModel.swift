@@ -115,7 +115,7 @@ extension Store {
             memory: empty == nil ? .init(chart: chart, largest: largestProcesses(5)) : nil,
             strip: empty == nil ? strip(all, fromNS: start, toNS: min(endNS, nowNS)) : nil, empty: empty,
             rows: shown,
-            labels: labelColors.sorted { $0.value < $1.value }.map(\.key))
+            labels: labelColors.labels)
     }
 
     /// A label's colour, by the order the app first saw it.
@@ -151,9 +151,8 @@ extension Store {
                     Formatting.timeLeft(h.leftS),
                 ] + (h.stops > 0 ? ["restarted after \(h.stops) memory \(h.stops == 1 ? "stop" : "stops")"] : [])))
         }
-        let live = doc.tickets.filter { $0.state != "dead" }
-        for (i, t) in live.enumerated() {
-            let first = i == 0, from = t.name.flatMap { record.runs.waiting(ticketName: $0)?.arrivalNS } ?? t.createdNS
+        for t in doc.tickets where t.live {
+            let first = t.position == 1, from = t.name.flatMap { record.runs.waiting(ticketName: $0)?.arrivalNS } ?? t.createdNS
             out.append(.init(
                 id: t.id, run: t.id, rawLabel: t.label, label: SafeText.display(t.label), color: color(t.label), waitFromNS: from, runFromNS: nil,
                 toNS: nowNS, live: true, stopped: false, restart: false, timedOut: false, forecastEndNS: nil,
@@ -161,7 +160,7 @@ extension Store {
                 detail: [
                     SafeText.display(t.label), "waiting since \(clock(from)), \(duration(from, nowNS))",
                     "needs \(Formatting.size(t.needMiB))",
-                    first ? Formatting.firstTicketWait(t.expectedWaitS) : "behind \(i) in the queue",
+                    first ? Formatting.firstTicketWait(t.expectedWaitS) : "behind \(t.position - 1) in the queue",
                 ]))
         }
         return out.filter { $0.toNS >= fromNS }
@@ -273,9 +272,8 @@ extension Store {
         let waits = rows.compactMap { r in r.waitFromNS.map { (fromNS: $0, toNS: r.runFromNS ?? r.toNS) } }
             .filter { $0.toNS > fromNS && $0.fromNS < toNS }
         let reasons = record.runs.headReasons(fromNS: fromNS, toNS: toNS).map { (fromNS: $0.fromNS, toNS: $0.toNS, reason: $0.reason) }
-        let order = ["room_short", "behind_head", "behind_ticket", "section_busy", "watch_level", "watch_spacing", "restart_"]
         let present = Set(reasons.map { Self.reasonKey($0.reason) })
-        var legend = order.filter(present.contains).map { (reason: $0, name: Words.reasonName($0 == "restart_" ? "restart_calm" : $0)!) }
+        var legend = Words.reasons.filter { present.contains($0.key) }.map { (reason: $0.key, name: $0.name) }
         if present.contains("other") { legend.append((reason: "other", name: "Another reason")) }
         return .init(waits: waits, reasons: reasons, legend: legend)
     }

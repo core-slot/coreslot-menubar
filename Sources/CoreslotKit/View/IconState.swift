@@ -1,11 +1,11 @@
 import Foundation
 
 /// What the menu bar icon shows for one reading.
-public enum IconState: Sendable, Equatable {
+package enum IconState: Sendable, Equatable {
     /// `fill` is the share of the machine coreslot has reserved, in quarters, 0 to 4.
     case idle, running(fill: Int), waiting(fill: Int), pressure, unavailable
 
-    public init(_ reading: StatusReading) {
+    package init(_ reading: StatusReading) {
         guard case .document(let doc, _) = reading else {
             self = .unavailable
             return
@@ -13,7 +13,7 @@ public enum IconState: Sendable, Equatable {
         let fill = Self.quarters(doc.mem)
         if ["yellow", "red", "floor"].contains(doc.watch.level) {
             self = .pressure
-        } else if doc.tickets.contains(where: { $0.state != "dead" }) {
+        } else if doc.tickets.contains(where: \.live) {
             self = .waiting(fill: fill)
         } else if !doc.holds.isEmpty {
             self = .running(fill: fill)

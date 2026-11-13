@@ -1,16 +1,16 @@
 import Foundation
 
 /// Something the header says about a reading.
-public enum Notice: Equatable, Sendable {
+package enum Notice: Equatable, Sendable {
     case tooOld, degraded(String), formatNotUnderstood(String), configError(String), schema(Int64)
 }
 
 /// Why there is no document to show.
-public enum Problem: Equatable, Sendable {
+package enum Problem: Equatable, Sendable {
     case notFound, stateUnreadable, failed(exitCode: Int32), malformed, timedOut
 }
 
-public enum StatusReading: Sendable, Equatable {
+package enum StatusReading: Sendable, Equatable {
     case document(StatusDocument, [Notice])
     /// A document of another schema, or from a coreslot too old to decode: nothing in it is read.
     case notices([Notice])
@@ -19,7 +19,7 @@ public enum StatusReading: Sendable, Equatable {
 
 /// What one run of `coreslot status --json` says. A stdout that decodes is a document whatever
 /// the exit code: `status` prints its document and then exits 3 when runs fail open.
-public func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading {
+package func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading {
     if r.timedOut { return .problem(.timedOut) }
     guard let code = r.exitCode else { return .problem(.notFound) }
     guard r.stdout.contains(where: { !$0.isWhitespace }) else {
@@ -36,6 +36,11 @@ public func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading {
     }
 }
 
+/// One `coreslot status --json`, stopped after 5 s, and what it says.
+package func readStatus(_ binary: CoreslotBinary, runner: Runner) async -> StatusReading {
+    interpret(await runner.run(binary.url, ["status", "--json"], environment: nil, timeout: .seconds(5)), binary: binary)
+}
+
 private func notices(_ doc: StatusDocument) -> [Notice] {
     var n: [Notice] = []
     if let d = doc.degraded { n.append(.degraded(d.reason)) }
@@ -49,23 +54,19 @@ private extension UInt8 {
 }
 
 /// One reading and the `coreslot` it came from; no `coreslot` when none was found.
-public struct Polled: Sendable, Equatable {
-    public let binary: CoreslotBinary?
-    public let reading: StatusReading
+package struct Polled: Sendable, Equatable {
+    package let binary: CoreslotBinary?
+    package let reading: StatusReading
 }
 
 /// Polls `coreslot status --json` for one consumer, one run at a time. A reading is taken when the
 /// consumer asks for the next, so its loop is the only one, and polling ends when it stops asking.
 /// Each poll looks for `coreslot` again, and reads its version again when the file found is another.
-public actor StatusSource {
-    /// How long one `status` may take before it is stopped.
-    static let statusTimeout: Duration = .seconds(5)
-
+package actor StatusSource {
     /// 2 s while the popover or the window is visible, 10 s otherwise.
-    public static func interval(visible: Bool) -> Duration { visible ? .seconds(2) : .seconds(10) }
+    package static func interval(visible: Bool) -> Duration { visible ? .seconds(2) : .seconds(10) }
 
     private let find: @Sendable () -> URL?
-    private let environment: [String: String]?
     private let runner: Runner
     private var known: CoreslotBinary?
     private var interval = interval(visible: false)
@@ -74,20 +75,20 @@ public actor StatusSource {
     private var wanted = false
 
     /// `find`: where `coreslot` is now, nil when nowhere.
-    public init(find: @escaping @Sendable () -> URL?, environment: [String: String]?, runner: Runner = .process) {
-        (self.find, self.environment, self.runner) = (find, environment, runner)
+    package init(find: @escaping @Sendable () -> URL?, runner: Runner = .process) {
+        (self.find, self.runner) = (find, runner)
     }
 
     /// The readings, each taken when it is asked for; the first at once.
-    public nonisolated func readings() -> AsyncStream<Polled> { AsyncStream(unfolding: { await self.next() }) }
+    package nonisolated func readings() -> AsyncStream<Polled> { AsyncStream(unfolding: { await self.next() }) }
 
-    public func setInterval(_ d: Duration) {
+    package func setInterval(_ d: Duration) {
         interval = d
         sleeper?.cancel()
     }
 
     /// A reading at once; while one is in flight, the next starts as soon as it ends.
-    public func readNow() {
+    package func readNow() {
         wanted = true
         sleeper?.cancel()
     }
@@ -106,10 +107,9 @@ public actor StatusSource {
     }
 
     /// One reading: the `coreslot` found now, then its `status --json`.
-    public func read() async -> Polled {
+    package func read() async -> Polled {
         guard let binary = await locate() else { return Polled(binary: nil, reading: .problem(.notFound)) }
-        let r = await runner.run(binary.url, ["status", "--json"], environment: environment, timeout: Self.statusTimeout)
-        return Polled(binary: binary, reading: interpret(r, binary: binary))
+        return Polled(binary: binary, reading: await readStatus(binary, runner: runner))
     }
 
     /// The `coreslot` found now, none when it cannot be read; its version is read again only for
@@ -117,7 +117,7 @@ public actor StatusSource {
     private func locate() async -> CoreslotBinary? {
         guard let url = find(), let id = Self.identity(url) else { known = nil; return nil }
         if let k = known, k.url == url, k.identity == id { return k }
-        known = await CoreslotBinary.probe(url, environment: environment, runner: runner)
+        known = await CoreslotBinary.probe(url, runner: runner)
         known?.identity = id
         return known
     }
