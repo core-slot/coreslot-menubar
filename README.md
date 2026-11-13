@@ -41,6 +41,34 @@ brew install --cask core-slot/tap/coreslot-menubar
 The cask does not install coreslot, so an existing coreslot (for example in `~/.local/bin`) is the
 one the app uses. To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Verify the download
+
+The release's sha256 is shown beside `coreslot-menubar-VERSION.zip` on its release page, and the
+cask carries the same value, which Homebrew checks when it installs. For a zip downloaded by hand,
+compare it with:
+
+```sh
+shasum -a 256 coreslot-menubar-VERSION.zip
+```
+
+Once the app is in `/Applications`, check that macOS accepts it as notarised:
+
+```sh
+spctl -a -vv /Applications/coreslot.app
+```
+
+It should say `accepted` and `source=Notarized Developer ID`.
+
+## Uninstall
+
+```sh
+brew uninstall --cask coreslot-menubar
+```
+
+This quits the app and removes it. With `--zap` (`brew uninstall --zap --cask coreslot-menubar`)
+its preferences and saved window state go too. If launch at login was on, its entry may stay in
+System Settings → General → Login Items; remove it there. coreslot itself stays installed.
+
 ## Diagnostics
 
 The app keeps its own log in the macOS unified log, which the system bounds and keeps; it writes
