@@ -163,7 +163,7 @@ struct TimelineStrip: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 0) {
                 Gutter { Text("Why they wait").font(.subheadline.weight(.semibold)) }
-                Canvas { context, size in draw(&context, size) }
+                Sketch { context, size in draw(&context, size) }
                     .frame(height: 12)
                     .padding(.trailing, TimelineView.trailing)
                     .accessibilityHidden(true)
@@ -177,7 +177,7 @@ struct TimelineStrip: View {
         .padding(.vertical, 10)
     }
 
-    private func draw(_ context: inout GraphicsContext, _ size: CGSize) {
+    private func draw(_ context: inout Sketcher, _ size: CGSize) {
         let px = { (t: Int64) in size.width * min(1, max(0, model.x(t))) }
         for w in strip.waits {
             Palette.hatch(&context, CGRect(x: px(w.fromNS), y: 0, width: px(w.toNS) - px(w.fromNS), height: size.height), .secondary)
@@ -242,7 +242,7 @@ private struct TimeAxis: View {
     let model: TimelineModel
 
     var body: some View {
-        Canvas { context, size in
+        Sketch { context, size in
             for t in ticks(model) {
                 let x = size.width * model.x(t)
                 let text = Text(TimelineView.minutes.string(from: Date(nanoseconds: t))).font(.caption2).foregroundStyle(.secondary)
@@ -258,10 +258,10 @@ private struct RowBar: View {
     let row: TimelineModel.Row
 
     var body: some View {
-        Canvas { context, size in draw(&context, size) }.accessibilityHidden(true)
+        Sketch { context, size in draw(&context, size) }.accessibilityHidden(true)
     }
 
-    private func draw(_ context: inout GraphicsContext, _ size: CGSize) {
+    private func draw(_ context: inout Sketcher, _ size: CGSize) {
         let px = { (t: Int64) in size.width * min(1, max(0, model.x(t))) }
         let h = size.height
         let color = Palette.label(row.color)
@@ -297,7 +297,7 @@ private struct RowBar: View {
     }
 }
 
-private func nowLine(_ context: inout GraphicsContext, _ size: CGSize, _ m: TimelineModel) {
+private func nowLine(_ context: inout Sketcher, _ size: CGSize, _ m: TimelineModel) {
     guard m.nowNS <= m.endNS else { return }
     var now = Path()
     let x = size.width * m.x(m.nowNS)
@@ -339,7 +339,7 @@ private struct HatchSwatch: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Canvas { context, size in Palette.hatch(&context, CGRect(origin: .zero, size: size), .secondary) }.frame(width: 10, height: 8)
+            Sketch { context, size in Palette.hatch(&context, CGRect(origin: .zero, size: size), .secondary) }.frame(width: 10, height: 8)
             Text(text)
         }
         .font(.caption)
@@ -352,7 +352,7 @@ private struct DashSwatch: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Canvas { context, size in
+            Sketch { context, size in
                 var p = Path()
                 p.move(to: CGPoint(x: 0, y: size.height / 2))
                 p.addLine(to: CGPoint(x: size.width, y: size.height / 2))

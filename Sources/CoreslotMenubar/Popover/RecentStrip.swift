@@ -14,7 +14,7 @@ struct RecentStrip: View {
                 Spacer()
                 Text("forecast").font(.caption2).foregroundStyle(.tertiary)
             }
-            Canvas { context, size in draw(&context, size) }
+            Sketch { context, size in draw(&context, size) }
                 .frame(height: max(12, CGFloat(model.bars.count) * (Self.rowHeight + Self.rowGap) + 2))
                 .accessibilityHidden(true)
         }
@@ -22,7 +22,7 @@ struct RecentStrip: View {
         .padding(.vertical, 8)
     }
 
-    private func draw(_ context: inout GraphicsContext, _ size: CGSize) {
+    private func draw(_ context: inout Sketcher, _ size: CGSize) {
         let w = size.width
         let zone = CGRect(x: w * StripModel.nowX, y: 0, width: w * (1 - StripModel.nowX), height: size.height)
         context.fill(Path(zone), with: .color(.primary.opacity(0.04)))

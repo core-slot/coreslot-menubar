@@ -163,7 +163,7 @@ private struct Sparkline: View {
     let color: Color
 
     var body: some View {
-        Canvas { context, size in
+        Sketch { context, size in
             guard values.count >= 2 else { return }
             let step = size.width / CGFloat(values.count - 1)
             let point = { (i: Int) in CGPoint(x: CGFloat(i) * step, y: size.height - 1 - CGFloat(values[i]) * (size.height - 2)) }

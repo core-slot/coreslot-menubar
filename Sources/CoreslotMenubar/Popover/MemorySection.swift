@@ -49,7 +49,7 @@ private struct MemoryBarView: View {
     let segments: [MemoryModel.Segment]
 
     var body: some View {
-        Canvas { context, size in
+        Sketch { context, size in
             var x: CGFloat = 0
             for s in segments {
                 let rect = CGRect(x: x, y: 0, width: size.width * s.fraction, height: size.height)
@@ -74,7 +74,7 @@ private struct Swatch: View {
     let kind: MemoryModel.Kind
 
     var body: some View {
-        Canvas { context, size in
+        Sketch { context, size in
             let rect = CGRect(origin: .zero, size: size)
             if kind == .reserve {
                 Palette.hatch(&context, rect, .secondary)
