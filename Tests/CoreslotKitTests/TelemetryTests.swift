@@ -20,9 +20,7 @@ struct LogFiles {
         try h.write(contentsOf: Data(s.utf8))
     }
 
-    func tail(startingAfter: Date? = nil) -> JSONLTail {
-        JSONLTail(current: current, older: older, startingAfter: startingAfter)
-    }
+    func tail() -> JSONLTail { JSONLTail(current: current, older: older) }
 
     func remove() { try? FileManager.default.removeItem(at: root) }
 }
@@ -85,8 +83,8 @@ extension JSONLTail {
         #expect(try t.drain() == ["new"])
     }
 
-    // Mutation: start the first open at 0 whatever the date; "a" comes back, red.
-    @Test func aFirstOpenWithADateReadsTheLastWindowOfBothGenerations() throws {
+    // Mutation: start the first open at 0; "a" comes back, red.
+    @Test func aFirstOpenReadsTheLastWindowOfBothGenerations() throws {
         let f = try LogFiles()
         defer { f.remove() }
         try f.append("a\n", to: f.older)
@@ -95,32 +93,8 @@ extension JSONLTail {
         try h.close()
         try f.append("\nb\n", to: f.older)
         try f.append("c\n")
-        var dated = f.tail(startingAfter: Date(timeIntervalSince1970: 1))
-        #expect(try dated.drain() == ["b", "c"])
-        var whole = f.tail()
-        #expect(try whole.drain() == ["a", "b", "c"])
-    }
-
-    // Mutation: with a date, read the older generation only when the current file exists; red.
-    @Test func aMissingCurrentFileReadsTheOlderGeneration() throws {
-        let f = try LogFiles()
-        defer { f.remove() }
-        try f.append("{\"time_ns\":1}\n{\"time_ns\":2000000000}\n", to: f.older)
-        var t = f.tail(startingAfter: Date(timeIntervalSince1970: 1))
-        #expect(try t.drain().count == 2)
-    }
-
-    // In log/runs.jsonl `time_ns` is the attempt's start, so a later line can carry an earlier time.
-    // Mutation: skip the older generation whenever the current file exists, as the rule this
-    // replaced did here (the current file's first line is older than the date); 1060 s is lost, red.
-    @Test func aRunLogLineNewerThanTheDateInTheOlderGenerationIsRead() throws {
-        let f = try LogFiles()
-        defer { f.remove() }
-        let line = { (s: Int) in "{\"time_ns\":\(s)000000000}\n" }
-        try f.append(line(900) + line(1060), to: f.older)
-        try f.append(line(400) + line(1100))
-        var t = f.tail(startingAfter: Date(timeIntervalSince1970: 1000))
-        #expect(try t.drain().contains(String(line(1060).dropLast())))
+        var t = f.tail()
+        #expect(try t.drain() == ["b", "c"])
     }
 
     // Mutation: drop O_NONBLOCK; the open blocks until the time limit, red.
@@ -130,7 +104,7 @@ extension JSONLTail {
         defer { f.remove() }
         try f.append("old\n", to: f.older)
         #expect(mkfifo(f.current.path, 0o600) == 0)
-        var t = f.tail(startingAfter: Date(timeIntervalSince1970: 1))
+        var t = f.tail()
         #expect(try t.drain() == ["old"])
         #expect(try t.read(maxBytes: 1024) == [] && t.atEnd)
         var dir = JSONLTail(current: f.root, older: f.older)
@@ -168,12 +142,13 @@ extension JSONLTail {
         #expect(line.utf8.count == 1024)
         let block = Data(String(repeating: line, count: 1024).utf8)
         FileManager.default.createFile(atPath: f.current.path, contents: nil)
+        var t = f.tail() // opened while empty, so the whole file is read, not the first open's window
+        #expect(try t.read(maxBytes: 1) == [] && t.atEnd)
         let h = try FileHandle(forWritingTo: f.current)
         for _ in 0..<200 { try h.write(contentsOf: block) }
         try h.close()
 
         let maxBytes = 4 << 20
-        var t = f.tail()
         let base = inUse()
         var peak = 0, count = 0, calls = 0
         while true {
@@ -199,6 +174,7 @@ extension JSONLTail {
 
 @Suite struct LineTests {
     // Mutation: drop the schema check; the `"v": 99` line decodes, red.
+    // Mutation: leave `refused` out of the names that end a wait; it reads as another event, red.
     @Test func anUnparseableLineAndAnotherSchemaAreSkipped() throws {
         let good = #"{"v":1,"time_ns":5,"level":"green","headroom_ok":true,"headroom_mib":2000,"reserve_mib":256,"room_mib":1500,"live_holds":1,"jobs":[{"hold":"h1","label":"a","footprint_mib":12,"extra":1}],"new_key":true}"#
         let f = try LogFiles()
@@ -211,7 +187,10 @@ extension JSONLTail {
         #expect(parsed.first?.jobs == [SampleLine.Job(hold: "h1", label: "a", footprintMiB: 12)])
         let event = #"{"v":99,"e":"cancelled","run":"r","attempt":1,"n":3,"time_ns":1,"label":"a"}"#
         #expect(EventLine(line: Data(event.utf8)) == nil)
-        #expect(EventLine(line: Data(event.replacingOccurrences(of: "99", with: "1").utf8))?.kind == .cancelled)
+        for e in ["cancelled", "interrupted", "refused", "timeout", "not_started", "stopped"] {
+            let kind = EventLine(line: Data(event.replacingOccurrences(of: "99", with: "1").replacingOccurrences(of: "cancelled", with: e).utf8))?.kind
+            #expect(kind == (e == "stopped" ? .other(e) : .waitEnded(e)), "\(e)")
+        }
     }
 
     // Mutation: spell Enqueue's `real_memory` key `realMemory`; every enqueue line is skipped, red.
@@ -258,7 +237,7 @@ extension JSONLTail {
 
     private func enqueue(_ ticket: String) -> EventLine.Kind {
         .enqueue(try! JSONDecoder().decode(EventLine.Enqueue.self, from: Data(
-            #"{"ticket":"\#(ticket)","typical_s":30,"real_memory":false,"need_mib":512,"mem_mib":16384}"#.utf8)))
+            #"{"ticket":"\#(ticket)","typical_s":30,"real_memory":false,"need_mib":512}"#.utf8)))
     }
 
     // Mutation: key the attempts by `run` alone; attempt 2's lines overwrite attempt 1's, red.
@@ -283,7 +262,7 @@ extension JSONLTail {
         var runs = Runs()
         runs.apply(line("r", 1, 1, enqueue("t1")))
         runs.apply(line("r", 1, 2, .waiting(.init(reason: "room_short"))))
-        runs.apply(line("r", 1, 3, .cancelled))
+        runs.apply(line("r", 1, 3, .waitEnded("cancelled")))
         let a = runs.waiting(ticketName: "t1")
         #expect(a?.end == Runs.End(event: "cancelled", timeNS: 3_000_000_000))
         #expect(a?.admittedNS == nil)
@@ -294,8 +273,8 @@ extension JSONLTail {
     @Test func pruneDropsOnlyWhatEndedBeforeTheDate() {
         var runs = Runs()
         for (run, ticket) in [("old", "t1"), ("late", "t2"), ("live", "t3")] { runs.apply(line(run, 1, 1, enqueue(ticket))) }
-        runs.apply(line("old", 1, 5, .cancelled))
-        runs.apply(line("late", 1, 20, .refused))
+        runs.apply(line("old", 1, 5, .waitEnded("cancelled")))
+        runs.apply(line("late", 1, 20, .waitEnded("refused")))
         runs.prune(endedBefore: Date(timeIntervalSince1970: 10))
         #expect(runs.byTicket["t1"] == nil && runs.attempts.count == 2)
         #expect(runs.waiting(ticketName: "t2")?.end?.event == "refused" && runs.waiting(ticketName: "t3")?.end == nil)

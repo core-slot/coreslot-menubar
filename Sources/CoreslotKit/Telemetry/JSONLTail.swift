@@ -7,7 +7,7 @@ import Foundation
 /// It holds no file open between calls: each read opens the files by path and compares the
 /// device and inode it remembers, so a rotated file is finished by name as the older generation.
 public struct JSONLTail: Sendable {
-    /// How much of the two generations, taken as one, a first open with a date reads at most.
+    /// How much of the two generations, taken as one, the first read takes at most.
     static let firstOpenWindow: Int64 = 64 << 20
 
     struct FileID: Equatable, Sendable {
@@ -17,7 +17,6 @@ public struct JSONLTail: Sendable {
 
     public let current: URL
     public let older: URL
-    private let startingAfter: Date?
     private var opened = false
     private var file: FileID?
     /// Where the current file is read next; 0 while `file` is nil.
@@ -30,11 +29,10 @@ public struct JSONLTail: Sendable {
     /// True when the last `read` reached the end of what is there now; false, call again.
     public private(set) var atEnd = false
 
-    /// With `startingAfter`, the first open reads only the last `firstOpenWindow` bytes of the
-    /// older generation and the current file taken as one; the caller drops older lines as it
-    /// parses. Without it, both generations are read whole.
-    public init(current: URL, older: URL, startingAfter: Date? = nil) {
-        (self.current, self.older, self.startingAfter) = (current, older, startingAfter)
+    /// The first read starts `firstOpenWindow` bytes before the end of the older generation and
+    /// the current file taken as one; the caller drops lines older than it wants as it parses.
+    public init(current: URL, older: URL) {
+        (self.current, self.older) = (current, older)
     }
 
     /// The logs of a state directory, each with its older generation.
@@ -42,10 +40,8 @@ public struct JSONLTail: Sendable {
         case samples = "telemetry/samples", events = "telemetry/events", runs = "log/runs"
     }
 
-    public init(stateDir: URL, log: Log, startingAfter: Date? = nil) {
-        self.init(
-            current: stateDir.appending(path: log.rawValue + ".jsonl"),
-            older: stateDir.appending(path: log.rawValue + ".1.jsonl"), startingAfter: startingAfter)
+    public init(stateDir: URL, log: Log) {
+        self.init(current: stateDir.appending(path: log.rawValue + ".jsonl"), older: stateDir.appending(path: log.rawValue + ".1.jsonl"))
     }
 
     /// Complete lines appended since the last call, at most `maxBytes` of them in all, from at most
@@ -108,14 +104,14 @@ public struct JSONLTail: Sendable {
         return []
     }
 
-    /// Places the start: with a date, `firstOpenWindow` bytes before the end of the older
-    /// generation and the current file taken as one, so the older one is read whenever the window
-    /// reaches into it; without, at the start of both. A start inside a line skips to its end.
+    /// Places the start `firstOpenWindow` bytes before the end of the older generation and the
+    /// current file taken as one, so the older one is read whenever the window reaches into it. A
+    /// start inside a line skips to its end.
     private mutating func firstOpen() throws {
         let old = try Self.chunk(older, expecting: nil, at: 0, count: 0)
         let head = try Self.chunk(current, expecting: nil, at: 0, count: 0)
         let oldSize = old?.size ?? 0
-        let start = startingAfter == nil ? 0 : max(0, oldSize + (head?.size ?? 0) - Self.firstOpenWindow)
+        let start = max(0, oldSize + (head?.size ?? 0) - Self.firstOpenWindow)
         if let old, start < oldSize {
             finishing = (old.id, start)
             skipping = start > 0

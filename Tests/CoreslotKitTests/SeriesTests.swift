@@ -12,9 +12,8 @@ import Testing
         _ jobs: [(String, Int64)] = []
     ) -> SampleLine {
         SampleLine(
-            timeNS: (Self.t0 + s) * 1_000_000_000, level: ok ? "green" : "unknown", headroomOK: ok,
-            headroomMiB: ok ? headroom : 0, reserveMiB: reserve, roomMiB: ok ? room : 0, liveHolds: Int64(jobs.count),
-            jobs: jobs.enumerated().map { SampleLine.Job(hold: "h\($0.offset)", label: $0.element.0, footprintMiB: $0.element.1) })
+            timeNS: (Self.t0 + s) * 1_000_000_000, headroomOK: ok, headroomMiB: ok ? headroom : 0, reserveMiB: reserve,
+            roomMiB: ok ? room : 0, jobs: jobs.enumerated().map { SampleLine.Job(hold: "h\($0.offset)", label: $0.element.0, footprintMiB: $0.element.1) })
     }
 
     private func at(_ s: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(Self.t0 + s)) }

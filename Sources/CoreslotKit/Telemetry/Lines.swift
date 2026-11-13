@@ -4,15 +4,23 @@ import Foundation
 // https://github.com/core-slot/coreslot/blob/v0.8.0/docs/telemetry.md defines them: a line of a
 // schema `v` other than 1 is skipped, an unknown key is ignored, a line that does not parse is nil.
 
+/// A line of a JSON-lines log: nil when it does not parse.
+public protocol JSONLine: Decodable {}
+
+extension JSONLine {
+    public init?(line: Data) {
+        guard let v = try? JSONDecoder().decode(Self.self, from: line) else { return nil }
+        self = v
+    }
+}
+
 /// One line of `samples.jsonl`.
-public struct SampleLine: Decodable, Sendable, Equatable {
+public struct SampleLine: JSONLine, Sendable, Equatable {
     public let timeNS: Int64
-    public let level: String
     public let headroomOK: Bool
     public let headroomMiB: Int64
     public let reserveMiB: Int64
     public let roomMiB: Int64
-    public let liveHolds: Int64
     public let jobs: [Job]
 
     public struct Job: Decodable, Sendable, Equatable {
@@ -29,44 +37,16 @@ public struct SampleLine: Decodable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case v
         case timeNS = "time_ns"
-        case level
         case headroomOK = "headroom_ok"
         case headroomMiB = "headroom_mib"
         case reserveMiB = "reserve_mib"
         case roomMiB = "room_mib"
-        case liveHolds = "live_holds"
         case jobs
-    }
-
-    public init(
-        timeNS: Int64, level: String, headroomOK: Bool, headroomMiB: Int64, reserveMiB: Int64,
-        roomMiB: Int64, liveHolds: Int64, jobs: [Job]
-    ) {
-        (self.timeNS, self.level, self.headroomOK, self.headroomMiB) = (timeNS, level, headroomOK, headroomMiB)
-        (self.reserveMiB, self.roomMiB, self.liveHolds, self.jobs) = (reserveMiB, roomMiB, liveHolds, jobs)
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        try c.checkSchema(.v)
-        timeNS = try c.decode(.timeNS, in: Clamp.time)
-        level = try c.decode(String.self, forKey: .level)
-        headroomOK = try c.decode(Bool.self, forKey: .headroomOK)
-        headroomMiB = try c.decode(.headroomMiB, in: Clamp.signed)
-        reserveMiB = try c.decode(.reserveMiB, in: Clamp.amount)
-        roomMiB = try c.decode(.roomMiB, in: Clamp.signed)
-        liveHolds = try c.decode(.liveHolds, in: Clamp.amount)
-        jobs = try c.decodeIfPresent([Job].self, forKey: .jobs) ?? []
-    }
-
-    public init?(line: Data) {
-        guard let s = try? JSONDecoder().decode(Self.self, from: line) else { return nil }
-        self = s
     }
 }
 
 /// One line of a run in `events.jsonl`; the machine-wide lines, which name no run, are not.
-public struct EventLine: Decodable, Sendable, Equatable {
+public struct EventLine: JSONLine, Sendable, Equatable {
     public let run: String
     public let attempt: Int64
     public let n: Int64
@@ -77,11 +57,11 @@ public struct EventLine: Decodable, Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case enqueue(Enqueue)
         case waiting(Waiting)
-        case admitted(waitedS: Double)
+        case admitted
         case ended(Ended)
-        case stopped, cancelled, interrupted, refused, timeout
-        case notStarted
-        case outside(kind: String)
+        /// A line that ended the wait without a start, by its name: `cancelled`, `interrupted`,
+        /// `refused`, `timeout` or `not_started`.
+        case waitEnded(String)
         /// An event this app does not use, by its name.
         case other(String)
     }
@@ -91,14 +71,12 @@ public struct EventLine: Decodable, Sendable, Equatable {
         public let typicalS: Int64
         public let realMemory: Bool
         public let needMiB: Int64
-        public let memMiB: Int64
 
         enum CodingKeys: String, CodingKey {
             case ticket
             case typicalS = "typical_s"
             case realMemory = "real_memory"
             case needMiB = "need_mib"
-            case memMiB = "mem_mib"
         }
     }
 
@@ -125,6 +103,7 @@ public struct EventLine: Decodable, Sendable, Equatable {
     public struct Ended: Decodable, Sendable, Equatable {
         public let failOpen: String?
         public let stoppedBy: String?
+        /// The signal that killed the command, by name.
         public let signal: String?
 
         enum CodingKeys: String, CodingKey {
@@ -135,51 +114,15 @@ public struct EventLine: Decodable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, run, attempt, n, label, kind
+        case v, e, run, attempt, n, label
         case timeNS = "time_ns"
-        case waitedS = "waited_s"
-    }
-
-    public init(run: String, attempt: Int64, n: Int64, timeNS: Int64, label: String, kind: Kind) {
-        (self.run, self.attempt, self.n, self.timeNS, self.label, self.kind) = (run, attempt, n, timeNS, label, kind)
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        try c.checkSchema(.v)
-        run = try c.decode(String.self, forKey: .run)
-        attempt = try c.decode(.attempt, in: Clamp.amount)
-        n = try c.decode(.n, in: Clamp.amount)
-        timeNS = try c.decode(.timeNS, in: Clamp.time)
-        label = try c.decode(String.self, forKey: .label)
-        switch try c.decode(String.self, forKey: .e) {
-        case "enqueue": kind = .enqueue(try Enqueue(from: decoder))
-        case "waiting": kind = .waiting(try Waiting(from: decoder))
-        case "admitted": kind = .admitted(waitedS: try c.decode(Double.self, forKey: .waitedS))
-        case "ended": kind = .ended(try Ended(from: decoder))
-        case "stopped": kind = .stopped
-        case "cancelled": kind = .cancelled
-        case "interrupted": kind = .interrupted
-        case "refused": kind = .refused
-        case "timeout": kind = .timeout
-        case "not_started": kind = .notStarted
-        case "outside": kind = .outside(kind: try c.decode(String.self, forKey: .kind))
-        case let e: kind = .other(e)
-        }
-    }
-
-    public init?(line: Data) {
-        guard let e = try? JSONDecoder().decode(Self.self, from: line) else { return nil }
-        self = e
     }
 }
 
 /// The machine-wide `memory` line of `events.jsonl`: the largest processes, by name.
-public struct MemoryLine: Decodable, Sendable, Equatable {
+public struct MemoryLine: JSONLine, Sendable, Equatable {
     public let timeNS: Int64
     public let top: [Process]
-    /// The Docker VM's largest process; absent when none runs.
-    public let vm: Process?
 
     public struct Process: Decodable, Sendable, Equatable {
         public let name: String
@@ -192,7 +135,7 @@ public struct MemoryLine: Decodable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, top, vm
+        case v, e, top
         case timeNS = "time_ns"
     }
 
@@ -204,12 +147,38 @@ public struct MemoryLine: Decodable, Sendable, Equatable {
         }
         timeNS = try c.decode(.timeNS, in: Clamp.time)
         top = try c.decodeIfPresent([Process].self, forKey: .top) ?? []
-        vm = try c.decodeIfPresent(Process.self, forKey: .vm)
     }
+}
 
-    public init?(line: Data) {
-        guard let m = try? JSONDecoder().decode(Self.self, from: line) else { return nil }
-        self = m
+extension SampleLine {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try c.checkSchema(.v)
+        (timeNS, headroomOK) = (try c.decode(.timeNS, in: Clamp.time), try c.decode(Bool.self, forKey: .headroomOK))
+        headroomMiB = try c.decode(.headroomMiB, in: Clamp.signed)
+        reserveMiB = try c.decode(.reserveMiB, in: Clamp.amount)
+        roomMiB = try c.decode(.roomMiB, in: Clamp.signed)
+        jobs = try c.decodeIfPresent([Job].self, forKey: .jobs) ?? []
+    }
+}
+
+extension EventLine {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try c.checkSchema(.v)
+        run = try c.decode(String.self, forKey: .run)
+        attempt = try c.decode(.attempt, in: Clamp.amount)
+        n = try c.decode(.n, in: Clamp.amount)
+        timeNS = try c.decode(.timeNS, in: Clamp.time)
+        label = try c.decode(String.self, forKey: .label)
+        switch try c.decode(String.self, forKey: .e) {
+        case "enqueue": kind = .enqueue(try Enqueue(from: decoder))
+        case "waiting": kind = .waiting(try Waiting(from: decoder))
+        case "admitted": kind = .admitted
+        case "ended": kind = .ended(try Ended(from: decoder))
+        case let e where ["cancelled", "interrupted", "refused", "timeout", "not_started"].contains(e): kind = .waitEnded(e)
+        case let e: kind = .other(e)
+        }
     }
 }
 
@@ -225,8 +194,7 @@ extension EventLine.Enqueue {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         (ticket, realMemory) = (try c.decode(String.self, forKey: .ticket), try c.decode(Bool.self, forKey: .realMemory))
-        typicalS = try c.decode(.typicalS, in: Clamp.amount)
-        (needMiB, memMiB) = (try c.decode(.needMiB, in: Clamp.amount), try c.decode(.memMiB, in: Clamp.amount))
+        (typicalS, needMiB) = (try c.decode(.typicalS, in: Clamp.amount), try c.decode(.needMiB, in: Clamp.amount))
     }
 }
 

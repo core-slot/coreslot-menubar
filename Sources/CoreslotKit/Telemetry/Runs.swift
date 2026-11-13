@@ -57,12 +57,8 @@ public struct Runs: Sendable {
         case .ended(let d):
             a.end = End(event: "ended", timeNS: e.timeNS)
             (a.stoppedBy, a.failOpen) = (d.stoppedBy, d.failOpen)
-        case .cancelled: a.end = End(event: "cancelled", timeNS: e.timeNS)
-        case .interrupted: a.end = End(event: "interrupted", timeNS: e.timeNS)
-        case .refused: a.end = End(event: "refused", timeNS: e.timeNS)
-        case .timeout: a.end = End(event: "timeout", timeNS: e.timeNS)
-        case .notStarted: a.end = End(event: "not_started", timeNS: e.timeNS)
-        case .stopped, .outside, .other: break
+        case .waitEnded(let name): a.end = End(event: name, timeNS: e.timeNS)
+        case .other: break
         }
         attempts[key] = a
     }
