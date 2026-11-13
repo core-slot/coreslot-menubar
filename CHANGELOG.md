@@ -26,8 +26,9 @@ All notable changes to this project are recorded here. The format follows
 - The timeline says "past its usual time" and "no estimate" as the popover does, draws no start
   for an expected wait of 0, draws a run that went ahead when its wait timed out (`--on-timeout run`)
   as running from then, and leaves out pass-through runs.
-- The release build carries no debug map, local build path or debug hook, and the release script
-  refuses one that does.
+- The release build no longer carries the debug map with the local build paths, and the release
+  script refuses a build that carries a debug map, a local path or a debug hook (debug hooks were
+  never in a release build).
 
 ## v0.1.0 (2026-11-13)
 
