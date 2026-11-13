@@ -5,10 +5,9 @@ import Foundation
 ///
 /// Only the keys the app reads are decoded; the others are ignored, as unknown keys are. A key the
 /// reference allows to be null or absent is optional, and so is every key coreslot 0.8.0 added, so
-/// a 0.7.0 document decodes too. The integers of `mem`, the
-/// holds and the tickets that feed arithmetic, and every number of seconds, are clamped by `Clamp`.
+/// a 0.7.0 document decodes too. The integers of `mem`, the holds and the tickets that feed
+/// arithmetic, and every number of seconds, are clamped by `Clamp`.
 package struct StatusDocument: Decodable, Sendable, Equatable {
-    package let schema: Int64
     package let stateDir: String
     package let formatUnderstood: Bool
     package let formatError: String
@@ -141,24 +140,17 @@ package struct StatusDocument: Decodable, Sendable, Equatable {
         package var live: Bool { state != "dead" }
     }
 
-    /// Decodes the keys whatever `schema` says; `decode(_:)` is what checks the schema first.
+    /// Throws `OtherSchema` for a schema other than 1, whatever its other keys.
     package init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        (schema, stateDir) = (try c.decode(Int64.self, forKey: .schema), try c.decode(String.self, forKey: .stateDir))
-        (formatUnderstood, formatError) = (try c.decode(Bool.self, forKey: .formatUnderstood), try c.decode(String.self, forKey: .formatError))
+        try c.checkSchema(.schema)
+        (stateDir, formatUnderstood) = (try c.decode(String.self, forKey: .stateDir), try c.decode(Bool.self, forKey: .formatUnderstood))
+        formatError = try c.decode(String.self, forKey: .formatError)
         (configError, degraded) = (try c.decode(String.self, forKey: .configError), try c.decodeIfPresent(Degraded.self, forKey: .degraded))
         (mem, watch) = (try c.decodeIfPresent(Mem.self, forKey: .mem), try c.decode(Watch.self, forKey: .watch))
         (holds, tickets) = (try c.decode([Hold].self, forKey: .holds), try c.decode([Ticket].self, forKey: .tickets))
         cancelRequests = try c.decodeIfPresent([String].self, forKey: .cancelRequests) ?? []
     }
 
-    /// Throws `OtherSchema` for a schema other than 1, whatever its other keys.
-    package static func decode(_ data: Data) throws -> StatusDocument {
-        _ = try JSONDecoder().decode(SchemaProbe.self, from: data)
-        return try JSONDecoder().decode(StatusDocument.self, from: data)
-    }
-
-    private struct SchemaProbe: Decodable {
-        init(from decoder: any Decoder) throws { try decoder.container(keyedBy: CodingKeys.self).checkSchema(.schema) }
-    }
+    package static func decode(_ data: Data) throws -> StatusDocument { try JSONDecoder().decode(StatusDocument.self, from: data) }
 }
