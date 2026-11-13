@@ -13,7 +13,8 @@ public struct LogTransitions: Sendable {
     private var kind: String?
     private var notices: [String] = []
     private var binary: CoreslotBinary?
-    private var readErrors: [String] = []
+    /// The read errors last logged; a restart clears them, since the record it reads may be another.
+    public var readErrors: [String] = []
 
     public init() {}
 

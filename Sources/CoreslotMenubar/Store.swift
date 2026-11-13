@@ -113,7 +113,7 @@ final class Store {
         generation += 1
         loop?.cancel()
         (loop, source, binary, report, reportAt, reportTask) = (nil, nil, nil, nil, nil, nil)
-        (lastSample, holdLiveSince) = (nil, nil)
+        (lastSample, holdLiveSince, transitions.readErrors) = (nil, nil, [])
         start()
     }
 
@@ -155,17 +155,17 @@ final class Store {
         Log.actions.say("cancel asked: ticket \(id)")
         Task {
             defer { acting = false }
-            guard Confirm.ask(AlertText.cancel(ticket)) else { return Log.actions.say("cancel \(id): declined") }
+            guard Confirm.ask(AlertText.cancel(ticket)) else { return Log.actions.say("cancel declined: ticket \(id)") }
             switch await cancel(ticketID: ticket.id, using: binary, runner: runner) {
             case .requested:
-                Log.actions.say("cancel \(id): requested")
+                Log.actions.say("cancel requested: ticket \(id)")
                 cancelRequested.insert(ticket.id)
             case .refused(let now):
-                Log.actions.say("cancel \(id): refused, exit 75; status now \(LogTransitions.kind(now))")
+                Log.actions.say("cancel refused, exit 75: ticket \(id); status now \(LogTransitions.kind(now))")
                 await ingest(now)
                 Confirm.tell(AlertText.cancelRefused(ticketID: ticket.id, now: now))
             case .failed(let problem):
-                Log.actions.say("cancel \(id): failed, \(LogTransitions.kind(.problem(problem)))", failure: true)
+                Log.actions.say("cancel failed, \(LogTransitions.kind(.problem(problem))): ticket \(id)", failure: true)
                 Confirm.tell(AlertText.cancelFailed(problem))
             }
         }
@@ -176,17 +176,18 @@ final class Store {
         guard let binary, !acting else { return }
         acting = true
         let (runner, inspector, name) = (runner, feed.inspector, SafeText.display(hold.name))
-        Log.actions.say("stop asked: hold \(name), pid \(hold.pid)")
+        Log.actions.say("stop asked: pid \(hold.pid), hold \(name)")
         Task {
             defer { acting = false }
             let shown = await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector)
             guard case .ready(let pid, let facts) = shown else { return tell(stop: shown, name) }
-            guard Confirm.ask(AlertText.stop(hold, pid: pid, facts: facts)) else { return Log.actions.say("stop \(name): declined") }
-            let again = recheck(await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector), shown: shown)
-            guard case .ready = again else { return tell(stop: again, name) }
+            guard Confirm.ask(AlertText.stop(hold, pid: pid, facts: facts)) else { return Log.actions.say("stop declined: pid \(pid), hold \(name)") }
+            let checked = await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector)
+            let again = recheck(checked, shown: shown)
+            guard case .ready = again else { return tell(stop: again, name, differs: again != checked) }
             let outcome = sendStop(again, inspector: inspector, signal: feed.signal)
             let words = switch outcome { case .sent: "sent"; case .changed: "not sent, the process changed"; case .failed(let e): "failed, errno \(e)" }
-            Log.actions.say("stop \(name): SIGTERM to pid \(pid), started \(facts.startSeconds): \(words)", failure: outcome != .sent)
+            Log.actions.say("stop \(words): SIGTERM to pid \(pid), started \(facts.startSeconds), hold \(name)", failure: outcome != .sent)
             #if DEBUG
             Present.log("stop \(outcome)")
             #endif
@@ -195,10 +196,11 @@ final class Store {
         }
     }
 
-    /// Never `.ready`, whose facts hold the process's arguments.
-    private func tell(stop c: StopCheck, _ name: String) {
-        let why = switch c { case .gone: "the hold is gone"; case .changed: "the hold changed"; case .refused(let r): r; case .ready: "" }
-        Log.actions.say("stop \(name): not sent, \(why)", failure: c != .gone && c != .changed)
+    /// Never `.ready`, whose facts hold the arguments; `differs`: not the process the person confirmed.
+    private func tell(stop c: StopCheck, _ name: String, differs: Bool = false) {
+        var why = switch c { case .gone: "the hold is gone"; case .changed: "the hold is no longer stoppable"; case .refused(let r): r; case .ready: "" }
+        if differs { why = "the process differs from the one confirmed" }
+        Log.actions.say("stop not sent, \(why): hold \(name)", failure: differs || (c != .gone && c != .changed))
         #if DEBUG
         Present.log("stop \(c)")
         #endif
@@ -361,11 +363,8 @@ actor RecordReader {
     private func drain(_ tail: inout JSONLTail?, _ each: (Data) -> Void) {
         guard var t = tail else { return }
         for _ in 0..<Self.chunksPerUpdate {
-            let lines: [Data]
-            do { lines = try t.read(maxBytes: Self.chunk) } catch {
-                snapshot.errors.append("\(t.current.lastPathComponent): errno \((error as? POSIXError)?.code.rawValue ?? -1)")
-                break
-            }
+            let lines: [Data], stream = t.current.deletingPathExtension().lastPathComponent // an error may be either generation's
+            do { lines = try t.read(maxBytes: Self.chunk) } catch { snapshot.errors.append("\(stream): errno \((error as? POSIXError)?.code.rawValue ?? -1)"); break }
             lines.forEach(each)
             if t.atEnd { break }
         }

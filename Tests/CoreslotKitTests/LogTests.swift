@@ -45,8 +45,8 @@ import Testing
     // Mutation: `old = []` instead of `old = new` (every poll's errors again); red.
     @Test func aReadErrorIsLoggedOnceWhileItLastsAndOnceWhenItEnds() {
         var t = LogTransitions()
-        #expect([["samples.jsonl: errno 13"], ["samples.jsonl: errno 13"], [], ["samples.jsonl: errno 13"]].map { said(t.read(errors: $0)) } == [
-            ["!read error: samples.jsonl: errno 13"], [], ["read again: samples.jsonl: errno 13"], ["!read error: samples.jsonl: errno 13"],
+        #expect([["samples: errno 13"], ["samples: errno 13"], [], ["samples: errno 13"]].map { said(t.read(errors: $0)) } == [
+            ["!read error: samples: errno 13"], [], ["read again: samples: errno 13"], ["!read error: samples: errno 13"],
         ])
     }
 }
