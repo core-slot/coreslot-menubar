@@ -242,11 +242,12 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
     }
 
     // Mutation: read a 0 as "≈ 0 s" for the first ticket; red.
+    // Mutation: say "finishes in " before every `left_s`, as the timeline did; red.
     @Test func theForecasts() {
         #expect(Formatting.firstTicketWait(61) == "starts in ≈ 1 min")
         #expect(Formatting.firstTicketWait(0) == "next")
         #expect(Formatting.firstTicketWait(nil) == "no estimate")
-        #expect(Formatting.timeLeft(59) == "≈ 59 s")
+        #expect(Formatting.timeLeft(59) == "finishes in ≈ 59 s")
         #expect(Formatting.timeLeft(0) == "past its usual time")
         #expect(Formatting.timeLeft(nil) == "no estimate")
     }
