@@ -316,3 +316,16 @@ extension JSONLTail {
         }
     }
 }
+
+@Suite struct RunLogTests {
+    // Mutation: decode `ran_s` unclamped (`c.decode(Double.self, …)`); 1e300 stays, red.
+    @Test func secondsAreClampedAndANaNIsNoLine() throws {
+        let line = { (waited: String) in
+            RunLogLine(line: Data(#"{"time_ns":1,"label":"demo:a","waited_s":\#(waited),"ran_s":1e300,"exit":0,"fail_open":""}"#.utf8))
+        }
+        let r = try #require(line("1e10"))
+        #expect(r.waitedS == 1e10 && r.ranS == 0x1p40)
+        #expect(Formatting.duration(r.waitedS) == "2777777 h 47 min")
+        #expect(line("NaN") == nil) // JSON has no NaN
+    }
+}

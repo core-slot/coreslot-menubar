@@ -113,6 +113,22 @@ enum Fixture {
         #expect(try StatusDocument.decode(Fixture.encode(doc)).mem == nil)
     }
 
+    // Mutation: decode a hold's `footprint_mib` unclamped (`c.decode(Int64.self, …)`); red.
+    // Mutation: decode a ticket's `waited_s` unclamped; 1e300 stays, red.
+    @Test func holdAndTicketNumbersAreClamped() throws {
+        var doc = try Fixture.object("status-queue.json")
+        do {
+            doc["holds"] = (doc["holds"] as! [[String: Any]]).map {
+                $0.merging(["footprint_mib": Int64.max, "need_mib": -5, "start_ns": Int64.min, "held_for_s": -1]) { $1 }
+            }
+            doc["tickets"] = (doc["tickets"] as! [[String: Any]]).map { $0.merging(["waited_s": 1e300, "created_ns": Int64.max]) { $1 } }
+        }
+        let decoded = try StatusDocument.decode(Fixture.encode(doc))
+        #expect(decoded.holds.map { [$0.footprintMiB, $0.needMiB, $0.startNS] } == [[1 << 40, 0, 0], [1 << 40, 0, 0]])
+        #expect(decoded.holds.map(\.heldForS) == [0, 0] && decoded.tickets.map(\.waitedS) == [0x1p40, 0x1p40])
+        #expect(decoded.tickets.map(\.createdNS) == [1 << 62, 1 << 62])
+    }
+
     // Mutation: type Hold.pid as Int32; red.
     @Test func aPidBeyondInt32Decodes() throws {
         var doc = try Fixture.object("status-queue.json")

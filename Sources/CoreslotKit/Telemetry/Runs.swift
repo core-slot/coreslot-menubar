@@ -69,7 +69,7 @@ public struct Runs: Sendable {
 
     /// Drops the attempts that ended before `date`, and their tickets; live and waiting ones stay.
     public mutating func prune(endedBefore date: Date) {
-        attempts = attempts.filter { $0.value.end.map { Double($0.timeNS) / 1e9 >= date.timeIntervalSince1970 } ?? true }
+        attempts = attempts.filter { $0.value.end.map { $0.timeNS >= date.nanosecondsSince1970 } ?? true }
         byTicket = byTicket.filter { attempts[$0.value] != nil }
     }
 

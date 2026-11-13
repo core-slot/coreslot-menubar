@@ -9,9 +9,10 @@ public enum Formatting {
         return tenths % 10 == 0 ? "\(tenths / 10) GiB" : "\(tenths / 10).\(tenths % 10) GiB"
     }
 
-    /// "59 s" below a minute, then to the nearest minute: "5 min", "2 h 5 min".
-    public static func duration(_ seconds: Int64) -> String {
-        let s = max(0, seconds)
+    /// "59 s" below a minute, then to the nearest minute: "5 min", "2 h 5 min". Any number of
+    /// seconds is taken: a NaN or a negative is 0, and the most is `1 << 40`.
+    public static func duration(_ seconds: Double) -> String {
+        let s = Int64(Clamp.seconds(seconds).rounded())
         if s < 60 { return "\(s) s" }
         let m = s / 60 + (s % 60 >= 30 ? 1 : 0)
         if m < 60 { return "\(m) min" }
@@ -19,7 +20,7 @@ public enum Formatting {
     }
 
     /// A forecast: "≈ 5 min".
-    public static func approximately(_ seconds: Int64) -> String { "≈ " + duration(seconds) }
+    public static func approximately(_ seconds: Int64) -> String { "≈ " + duration(Double(seconds)) }
 
     /// The first ticket's `expected_wait_s`: a 0 is not a promise that it starts now.
     public static func firstTicketWait(_ s: Int64?) -> String {

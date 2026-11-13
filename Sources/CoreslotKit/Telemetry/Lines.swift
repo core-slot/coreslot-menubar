@@ -246,8 +246,9 @@ extension MemoryLine.Process {
     }
 }
 
-/// The ranges every integer read from the state directory, and every `mem` integer of `status`,
-/// is clamped into as it is decoded: no sum or difference the kit takes of them can overflow.
+/// The ranges every integer read from the state directory, and every integer of `status` that
+/// feeds arithmetic, is clamped into as it is decoded: no sum or difference the kit takes of them
+/// can overflow. Seconds given as numbers are clamped by `seconds`.
 enum Clamp {
     /// Sizes in MiB or KiB, counts and whole seconds.
     static let amount: ClosedRange<Int64> = 0...(1 << 40)
@@ -255,6 +256,9 @@ enum Clamp {
     static let signed: ClosedRange<Int64> = -(1 << 40)...(1 << 40)
     /// Nanoseconds since the epoch, to the year 2116.
     static let time: ClosedRange<Int64> = 0...(1 << 62)
+
+    /// Seconds in `0...(1 << 40)`, finite; a NaN is 0.
+    static func seconds(_ s: Double) -> Double { s.isNaN ? 0 : min(max(s, 0), Double(amount.upperBound)) }
 }
 
 extension KeyedDecodingContainer {
@@ -265,6 +269,8 @@ extension KeyedDecodingContainer {
     func decodeIfPresent(_ key: Key, in range: ClosedRange<Int64>) throws -> Int64? {
         try decodeIfPresent(Int64.self, forKey: key).map { min(max($0, range.lowerBound), range.upperBound) }
     }
+
+    func decodeSeconds(_ key: Key) throws -> Double { Clamp.seconds(try decode(Double.self, forKey: key)) }
 }
 
 /// Thrown for a document or line of a schema other than 1: its keys may mean something else.

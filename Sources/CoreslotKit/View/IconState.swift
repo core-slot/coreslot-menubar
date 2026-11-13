@@ -26,6 +26,6 @@ public enum IconState: Sendable, Equatable {
     static func quarters(_ mem: StatusDocument.Mem?) -> Int {
         guard let mem, let machine = mem.machineMiB, machine > 0 else { return 0 }
         let q = (Double(mem.reservedMiB) / Double(machine) * 4).rounded()
-        return Int(min(4, max(0, q)))
+        return Int(min(4, q))
     }
 }

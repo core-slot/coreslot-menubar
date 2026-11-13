@@ -200,10 +200,12 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
 
 @Suite struct FormattingTests {
     // Mutation: floor the minutes; 2 h 4 min 59 s reads "2 h 4 min", red.
+    // Mutation: convert with `Int64(seconds.rounded())`, without `Clamp.seconds`; NaN traps, red (crash).
     @Test(arguments: [
-        (Int64(0), "0 s"), (59, "59 s"), (61, "1 min"), (7500, "2 h 5 min"), (7499, "2 h 5 min"), (7200, "2 h"),
-    ] as [(Int64, String)])
-    func aDuration(_ s: Int64, _ want: String) {
+        (0, "0 s"), (59.4, "59 s"), (61, "1 min"), (7500, "2 h 5 min"), (7499, "2 h 5 min"), (7200, "2 h"),
+        (-3, "0 s"), (.nan, "0 s"), (1e10, "2777777 h 47 min"), (.infinity, "305419896 h 36 min"),
+    ] as [(Double, String)])
+    func aDuration(_ s: Double, _ want: String) {
         #expect(Formatting.duration(s) == want)
     }
 

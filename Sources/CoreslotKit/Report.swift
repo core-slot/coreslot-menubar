@@ -18,7 +18,6 @@ public struct Report: Decodable, Sendable, Equatable {
         try c.checkSchema(.schema)
         runs = try c.decode(Int64.self, forKey: .runs)
         let w = try c.nestedContainer(keyedBy: WaitKeys.self, forKey: .waits)
-        medianWaitS = try w.decode(Double.self, forKey: .median)
-        longestWaitS = try w.decode(Double.self, forKey: .longest)
+        (medianWaitS, longestWaitS) = (try w.decodeSeconds(.median), try w.decodeSeconds(.longest))
     }
 }

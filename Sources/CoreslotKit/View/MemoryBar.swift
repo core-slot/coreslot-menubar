@@ -29,16 +29,15 @@ public struct MemoryBar: Sendable, Equatable {
         guard let m = doc.mem, let machine = m.machineMiB, let headroom = m.headroomMiB,
               let reserve = m.reserveMiB, let room = m.roomMiB
         else { return nil }
-        let total = max(0, machine)
-        let free = min(max(0, headroom), total)
-        var left = total - free
+        let free = min(max(0, headroom), machine)
+        var left = machine - free
         var segments = doc.holds.map { h in
-            let f = min(max(0, h.footprintMiB), left)
+            let f = min(h.footprintMiB, left)
             left -= f
             return Segment(kind: .hold(name: h.name, label: h.label), mib: f)
         }
         segments.append(Segment(kind: .outside, mib: left))
-        let reserveShown = min(max(0, reserve), free)
+        let reserveShown = min(reserve, free)
         setAsideMiB = headroom - reserve - room
         let setAside = min(max(0, setAsideMiB), free - reserveShown)
         segments += [

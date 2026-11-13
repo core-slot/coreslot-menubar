@@ -97,7 +97,7 @@ public struct Series: Sendable {
     /// at most `maxSilenceNS` is left out, and the chart joins its neighbours.
     public func buckets(machineMiB: Int64, now: Date) -> [Bucket] {
         let res = range.resolutionS * 1_000_000_000
-        let nowNS = Int64(now.timeIntervalSince1970 * 1e9)
+        let nowNS = now.nanosecondsSince1970
         let startNS = nowNS - range.spanS * 1_000_000_000
         var unrecorded = silences
         if let first, let last {
@@ -130,7 +130,7 @@ public struct Series: Sendable {
 
     private func index(_ t: Int64) -> Int64 {
         let res = range.resolutionS * 1_000_000_000
-        return t >= 0 ? t / res : (t - res + 1) / res
+        return t / res
     }
 
     private mutating func prune(before t: Int64) {
@@ -139,4 +139,9 @@ public struct Series: Sendable {
         failed = failed.filter { $0 >= i }
         silences.removeAll { $0.upperBound < t }
     }
+}
+
+extension Date {
+    /// As `time_ns` counts: nanoseconds since the epoch.
+    public var nanosecondsSince1970: Int64 { Int64(timeIntervalSince1970 * 1e9) }
 }

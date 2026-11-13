@@ -55,7 +55,7 @@ public enum Words {
         case let r where r.hasPrefix("restart_"): text = "Restarting after a memory stop"
         default: return nil
         }
-        return ageS > 5 ? "\(text) · \(Formatting.duration(ageS)) ago" : text
+        return ageS > 5 ? "\(text) · \(Formatting.duration(Double(ageS))) ago" : text
     }
 
     /// The line under a hold that shows no stop button. `processChecked` is false when the app
