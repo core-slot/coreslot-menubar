@@ -3,7 +3,7 @@ import Synchronization
 import Testing
 @testable import CoreslotKit
 
-private let release = CoreslotBinary(url: URL(filePath: "/opt/coreslot"), version: Version(0, 8, 0), protocolFormats: [2])
+private let release = CoreslotBinary(url: URL(filePath: "/opt/coreslot"), version: Version(0, 8, 0))
 
 private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throws -> Data {
     var doc = try Fixture.object(name)

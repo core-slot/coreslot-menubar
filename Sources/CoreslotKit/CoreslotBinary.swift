@@ -31,17 +31,13 @@ public struct Version: Comparable, Sendable, CustomStringConvertible {
         self = x == 0 && y == 0 && z == 0 ? .development : Version(x, y, z)
     }
 
-    /// Parses the line `coreslot version` prints, `coreslot <v> (protocol formats: <list>)`.
-    public static func parse(versionLine line: String) -> (version: Version, formats: [Int])? {
-        let line = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        let head = "coreslot ", mid = " (protocol formats: "
-        guard line.hasPrefix(head), line.hasSuffix(")"), let m = line.range(of: mid),
-              let version = Version(String(line[line.index(line.startIndex, offsetBy: head.count)..<m.lowerBound]))
+    /// Parses the line `coreslot version` prints, `coreslot <v> (protocol formats: <n>)`; nil for any other.
+    public static func parse(versionLine line: String) -> Version? {
+        let w = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ", omittingEmptySubsequences: false)
+        guard w.count == 5, w[0] == "coreslot", w[2] == "(protocol", w[3] == "formats:", w[4].hasSuffix(")"),
+              Int(w[4].dropLast()) != nil
         else { return nil }
-        let list = line[m.upperBound..<line.index(before: line.endIndex)].split(separator: ",")
-        let formats = list.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-        guard !formats.isEmpty, formats.count == list.count else { return nil }
-        return (version, formats)
+        return Version(String(w[1]))
     }
 
     public static func < (a: Version, b: Version) -> Bool {
@@ -55,10 +51,9 @@ public struct Version: Comparable, Sendable, CustomStringConvertible {
 public struct CoreslotBinary: Sendable, Equatable {
     public let url: URL
     public let version: Version
-    public let protocolFormats: [Int]
 
-    public init(url: URL, version: Version, protocolFormats: [Int] = []) {
-        (self.url, self.version, self.protocolFormats) = (url, version, protocolFormats)
+    public init(url: URL, version: Version) {
+        (self.url, self.version) = (url, version)
     }
 
     /// Runs `coreslot version` at `url`; nil when it does not answer with a version line.
@@ -67,9 +62,9 @@ public struct CoreslotBinary: Sendable, Equatable {
     ) async -> CoreslotBinary? {
         let r = await runner.run(url, ["version"], environment: environment, timeout: timeout)
         guard r.exitCode == 0, !r.timedOut,
-              let (version, formats) = Version.parse(versionLine: String(decoding: r.stdout, as: UTF8.self))
+              let version = Version.parse(versionLine: String(decoding: r.stdout, as: UTF8.self))
         else { return nil }
-        return CoreslotBinary(url: url, version: version, protocolFormats: formats)
+        return CoreslotBinary(url: url, version: version)
     }
 }
 

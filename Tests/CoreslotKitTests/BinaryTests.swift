@@ -7,25 +7,21 @@ import Testing
 @Suite struct VersionTests {
     // Mutation: do not trim the line, so its newline stays; red.
     @Test func aReleaseLineParses() throws {
-        let (v, formats) = try #require(Version.parse(versionLine: "coreslot 0.8.0 (protocol formats: 2)\n"))
-        #expect(v == Version(0, 8, 0) && !v.isDevelopment && formats == [2])
-    }
-
-    // Mutation: keep only the first format of the list; red.
-    @Test func aListOfFormatsParses() throws {
-        let (v, formats) = try #require(Version.parse(versionLine: "coreslot 0.9.1 (protocol formats: 2, 3)"))
-        #expect(v == Version(0, 9, 1) && formats == [2, 3])
+        let v = try #require(Version.parse(versionLine: "coreslot 0.8.0 (protocol formats: 2)\n"))
+        #expect(v == Version(0, 8, 0) && !v.isDevelopment)
     }
 
     // Mutation: drop the 0.0.0 rule in Version.init; red.
     @Test func aBuildFromACheckoutIsDevelopment() throws {
-        let (v, _) = try #require(Version.parse(versionLine: "coreslot 0.0.0-dev (protocol formats: 2)"))
-        #expect(v == .development && v.isDevelopment)
+        #expect(try #require(Version.parse(versionLine: "coreslot 0.0.0-dev (protocol formats: 2)")).isDevelopment)
     }
 
-    // Mutation: accept a list entry that is not a number (compactMap without the count check); red.
-    @Test(arguments: ["", "coreslot", "coreslot 0.8 (protocol formats: 2)", "coreslot 0.8.0 (protocol formats: )",
-                      "coreslot 0.8.0 (protocol formats: 2, x)", "other 0.8.0 (protocol formats: 2)"])
+    // Mutation: drop the check that the format is a number; the line with `x` parses, red.
+    // Mutation: drop `w.count == 5`; the line cut after `formats:` traps on `w[4]`, red (crash).
+    @Test(arguments: ["", "coreslot", "coreslot 0.8 (protocol formats: 2)", "coreslot 0.8.0 (protocol formats:",
+                      "coreslot 0.8.0 (protocol formats: )",
+                      "coreslot 0.8.0 (protocol formats: 2, 3)", "coreslot 0.8.0 (protocol formats: x)",
+                      "other 0.8.0 (protocol formats: 2)"])
     func anythingElseDoesNot(_ line: String) {
         #expect(Version.parse(versionLine: line) == nil)
     }
@@ -73,6 +69,22 @@ import Testing
     private func write(_ url: URL, mode: Int) throws {
         try Data("#!/bin/sh\n".utf8).write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+    }
+}
+
+@Suite struct ProbeTests {
+    // Mutation: parse as before this fix, the slice from the prefix to " (protocol formats: "; the
+    // line with no version builds a reversed range and traps, red (crash).
+    @Test(arguments: [
+        ("coreslot 0.8.1 (protocol formats: 2)", Version(0, 8, 1)), ("coreslot (protocol formats: 2)", nil), ("", nil),
+    ] as [(String, Version?)])
+    func aBinaryIsWhatItsVersionLineSays(_ line: String, _ want: Version?) async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let exe = root.appending(path: "coreslot")
+        try Data(("#!/bin/sh\n" + (line.isEmpty ? "" : "echo '\(line)'\n")).utf8).write(to: exe) // "": prints nothing
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: exe.path)
+        #expect(await CoreslotBinary.probe(exe, environment: nil)?.version == want)
     }
 }
 
