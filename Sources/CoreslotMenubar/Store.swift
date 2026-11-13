@@ -248,7 +248,7 @@ actor RecordReader {
         drain(&samples) { line in
             guard let s = SampleLine(line: line), s.timeNS >= cutNS else { return }
             snapshot.newSamples += 1
-            snapshot.tracks.add(s)
+            snapshot.tracks.add(s, now: at)
             for r in Series.Range.allCases { snapshot.series[r]?.add(s, now: at) }
         }
         drain(&events) { line in

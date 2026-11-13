@@ -83,7 +83,7 @@ public struct Series: Sendable {
     mutating func add(_ r: Reading, now: Date) {
         let nowNS = now.nanosecondsSince1970
         prune(nowNS)
-        guard r.timeNS <= nowNS + Self.aheadNS, r.timeNS >= nowNS - range.spanS * 1_000_000_000 else { return }
+        guard placed(r.timeNS, nowNS: nowNS, spanS: range.spanS) else { return }
         let s = slot(r.timeNS, resolutionS: Self.slotS)
         presence[s >> 5, default: 0] |= UInt64(r.ok ? 1 : 2) << UInt64((s & 31) * 2)
         guard r.ok else { return }
@@ -145,6 +145,13 @@ public struct Series: Sendable {
         kept = kept.filter { (i - span...i + span).contains($0.key) }
         presence = presence.filter { (((i - span) * perBucket) >> 5...((i + span + 1) * perBucket) >> 5).contains($0.key) }
     }
+}
+
+/// The series' time rule, which `HoldTracks` follows too: a sample is placed by its own time, in
+/// whatever order it comes, unless it is dated more than `Series.aheadNS` past `nowNS`, the
+/// caller's clock, or more than `spanS` before it.
+func placed(_ timeNS: Int64, nowNS: Int64, spanS: Int64) -> Bool {
+    timeNS <= nowNS + Series.aheadNS && timeNS >= nowNS - spanS * 1_000_000_000
 }
 
 /// The slot of `resolutionS` seconds that a time falls in, counted from the epoch.

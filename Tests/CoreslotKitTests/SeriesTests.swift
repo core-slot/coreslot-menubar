@@ -171,11 +171,17 @@ import Testing
             jobs: jobs.map { SampleLine.Job(hold: $0.0, label: "demo:same", footprintMiB: $0.1) })
     }
 
+    private func at(_ s: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(s)) }
+
+    private func add(_ t: inout HoldTracks, _ s: Int64, _ footprint: Int64, now: Int64) {
+        t.add(hold: "h", timeNS: s * 1_000_000_000, footprintMiB: footprint, now: at(now))
+    }
+
     // Mutation: key the tracks by label, as `Series` does; the two holds of one label merge, red.
     @Test func twoHoldsOfOneLabelAreTwoTracks() {
         var t = HoldTracks()
-        t.add(sample(1000, [("h1", 100), ("h2", 700)]))
-        t.add(sample(1012, [("h1", 150), ("h2", 650)]))
+        t.add(sample(1000, [("h1", 100), ("h2", 700)]), now: at(1000))
+        t.add(sample(1012, [("h1", 150), ("h2", 650)]), now: at(1012))
         #expect(t.points("h1").map(\.footprintMiB) == [100, 150])
         #expect(t.peak("h1") == 150 && t.peak("h2") == 700)
     }
@@ -183,22 +189,52 @@ import Testing
     // Mutation: drop the `headroomOK` guard; the failed sample's 0 becomes a point, red.
     @Test func aFailedSampleIsAGapNotZero() {
         var t = HoldTracks()
-        t.add(sample(1000, [("h1", 300)]))
-        t.add(sample(1020, ok: false, [("h1", 0)]))
+        t.add(sample(1000, [("h1", 300)]), now: at(1000))
+        t.add(sample(1020, ok: false, [("h1", 0)]), now: at(1020))
         #expect(t.points("h1").map(\.footprintMiB) == [300])
     }
 
     // Mutation: append instead of inserting in time order; the older line lands last, red.
     @Test func aBucketKeepsItsLargestAndLinesArriveOutOfOrder() {
         var t = HoldTracks(resolutionS: 10, spanS: 60)
-        t.add(hold: "h", timeNS: 1_020_000_000_000, footprintMiB: 50)
-        t.add(hold: "h", timeNS: 1_000_000_000_000, footprintMiB: 40)
-        t.add(hold: "h", timeNS: 1_021_000_000_000, footprintMiB: 80)
-        t.add(hold: "h", timeNS: 1_022_000_000_000, footprintMiB: 60)
+        add(&t, 1020, 50, now: 1020)
+        add(&t, 1000, 40, now: 1020)
+        add(&t, 1021, 80, now: 1021)
+        add(&t, 1022, 60, now: 1022)
         #expect(t.points("h").map(\.footprintMiB) == [40, 80])
-        t.add(hold: "h", timeNS: 1_090_000_000_000, footprintMiB: 10)
+        add(&t, 1090, 10, now: 1090)
         #expect(t.points("h").map(\.footprintMiB) == [10], "a point older than the span is gone")
         t.keep(only: ["other"])
         #expect(t.points("h") == [] && t.peak("h") == nil)
+    }
+
+    // A line dated a day ahead, mid-run and last, is not placed, and the track goes on.
+    // Mutation: the old rule, every line placed and the track pruned from its newest point
+    // (`(t.last?.timeNS ?? timeNS) - spanNS`); the first line a day ahead empties the track, red.
+    // Mutation: drop the `aheadNS` bound in `placed`; the last line a day ahead is the peak, red.
+    @Test func aLineDatedADayAheadIsNotPlacedAndCostsNothing() {
+        var t = HoldTracks()
+        for s in stride(from: Int64(1000), through: 1100, by: 10) {
+            add(&t, s, 100 + s - 1000, now: s)
+            if s == 1050 || s == 1100 { add(&t, s + 86_400, 9000, now: s) }
+        }
+        #expect(t.points("h").map(\.footprintMiB) == Array(stride(from: Int64(100), through: 200, by: 10)))
+        #expect(t.peak("h") == 200)
+    }
+
+    // The wall clock steps back 5 min, inside the span: both stretches are kept, in time order.
+    // Then it steps back an hour, past the span: what comes next is placed by its time, and what
+    // is now an hour ahead is dropped. A line dated before the span is not placed.
+    // Mutation: prune from the newest point instead of around now; after the hour's step back
+    // nothing new is kept, red.
+    // Mutation: drop the bound at the span's start in `placed`; the line two hours back is kept, red.
+    @Test func aStepBackIsPlacedByItsTime() {
+        var t = HoldTracks()
+        for s in stride(from: Int64(10_000), through: 10_100, by: 10) { add(&t, s, 100, now: s) }
+        for s in stride(from: Int64(9_800), through: 9_900, by: 10) { add(&t, s, 200, now: s) }
+        #expect(t.points("h").map(\.footprintMiB) == Array(repeating: 200, count: 11) + Array(repeating: 100, count: 11))
+        for s in stride(from: Int64(6_300), through: 6_400, by: 10) { add(&t, s, 300, now: s) }
+        add(&t, 6_400 - 7_200, 9000, now: 6_400)
+        #expect(t.points("h").map(\.footprintMiB) == Array(repeating: 300, count: 11))
     }
 }
