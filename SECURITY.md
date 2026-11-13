@@ -30,12 +30,16 @@ processes, and forges a live hold. Before a `SIGTERM` the app reads `status` aga
 - its pid names one process: from 2 up, never 0, -1 or a process group;
 - the process at that pid runs the very `coreslot` file the app uses, by the device and inode of
   its mapped executable as the kernel reports them;
-- the process started no later than its hold's admission plus 2 s;
+- the process started no later than its hold's admission plus 2 s. This guards against a pid
+  reused under an honest hold, not against a forger, who writes that time (`start_ns`) itself;
 - the person has seen the process's own command line, as the kernel reports it, and confirmed.
 
-The checks run again after the confirmation and once more right before the signal; nothing is sent
-unless they read the same process.
+The checks run again after the confirmation, and nothing is sent unless they read the process that
+was shown. Right before the signal the app reads that process's kernel facts once more (its
+executable, start time and command line) and sends nothing if they changed; `status` is not read
+again then.
 
-What it does not defend: a writer of the state directory can still aim a stop at another run of
-the same `coreslot`, one coreslot itself would not stop included. The confirmation then shows that
-run's real command line, and the person decides.
+What it does not defend: a writer of the state directory can still aim a stop at any process
+running the same `coreslot` file, such as another `coreslot run`, one coreslot itself would not stop
+included, or a `coreslot status --observe`. The confirmation then shows that process's real command
+line, and the person decides.
