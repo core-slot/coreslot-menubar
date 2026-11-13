@@ -18,6 +18,7 @@ if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
     exit 64
 fi
 
+team="TC8A8F26GT"
 keychain="$HOME/Library/Keychains/coreslot-signing.keychain-db"
 profile="coreslot-notary"
 
@@ -39,6 +40,29 @@ fi
 scripts/bundle.sh --identity "Developer ID Application" --keychain "$keychain" --version "$version"
 
 app="build/coreslot.app"
+exe="$app/Contents/MacOS/coreslot-menubar"
+
+# What the published app must not carry. nm -ap lists the debug map's OSO and SO entries; strings -
+# (all bytes, unlike strings -a, which reads only the sections) also reads the symbol-name table.
+oso="$(nm -ap "$exe" | grep -cE ' (OSO|SO) ' || true)"
+if [ "$oso" -ne 0 ]; then
+    echo "the executable still carries $oso debug-map entries (OSO/SO); refusing to release" >&2
+    exit 1
+fi
+if strings - "$exe" | grep -q '/Users/'; then
+    echo "the executable contains a /Users/ path; refusing to release" >&2
+    exit 1
+fi
+if strings - "$exe" | grep -qE 'present-window|--answer|--ask-stop|--measure'; then
+    echo "the executable contains debug hooks (present-window, --answer, --ask-stop, --measure); refusing to release" >&2
+    exit 1
+fi
+signed_team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+if [ "$signed_team" != "$team" ]; then
+    echo "the app is signed by team '${signed_team:-none}', not $team; refusing to release" >&2
+    exit 1
+fi
+
 zip="build/coreslot-menubar-$version.zip"
 upload="build/notarise-$version.zip"
 result="build/notarise-$version.json"
@@ -65,4 +89,11 @@ xcrun stapler staple "$app"
 xcrun stapler validate "$app"
 spctl --assess --type execute -v "$app"
 ditto -c -k --norsrc --noextattr --noacl --keepParent "$app" "$zip"
+
+# The zip is what users download: open it again and assess the app inside.
+check="$(mktemp -d)"
+trap 'rm -rf "$check"' EXIT
+ditto -x -k "$zip" "$check"
+spctl --assess --type execute -v "$check/coreslot.app"
+
 shasum -a 256 "$zip"
