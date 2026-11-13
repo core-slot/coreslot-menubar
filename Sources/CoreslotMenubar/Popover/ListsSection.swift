@@ -122,6 +122,7 @@ struct RunningRowView: View {
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .rowAction("Stop", row.stoppable ? stop : nil)
     }
 }
 
@@ -153,6 +154,17 @@ struct WaitingRowView: View {
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .rowAction("Cancel request", row.cancelRequested ? nil : cancel)
+    }
+}
+
+extension View {
+    /// The row's action without a pointer too: in its context menu, and as the action of the row,
+    /// one accessibility element. Nil where the row has none: no menu and no action.
+    fileprivate func rowAction(_ title: String, _ action: (() -> Void)?) -> some View {
+        accessibilityElement(children: .combine)
+            .accessibilityActions { if let action { Button(title, action: action) } }
+            .contextMenu { if let action { Button(title, action: action) } }
     }
 }
 
