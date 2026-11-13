@@ -12,6 +12,23 @@ All notable changes to this project are recorded here. The format follows
   what coreslot reports, the coreslot found, each cancel and stop and its outcome, errors reading
   the record, and the choices made in Settings. The README's Diagnostics section has the command
   that reads it.
+- Stop and Withdraw without a pointer: a row that offers one also has it as its accessibility
+  action and as an item in its context menu.
+- `SECURITY.md`: how to report a vulnerability, and what the stop control checks and does not
+  defend against.
+- README sections on verifying the download and on uninstalling.
+
+### Fixed
+
+- Polling: a coreslot missing at one poll no longer leaves a second poller running for the life of
+  the app, and a coreslot replaced or overwritten in place has its version read again.
+- A coreslot whose version line lists several protocol formats no longer reads as not found.
+- The timeline says "past its usual time" and "no estimate" as the popover does, draws no start
+  for an expected wait of 0, draws a run that went ahead when its wait timed out (`--on-timeout run`)
+  as running from then, and leaves out pass-through runs.
+- The release build no longer carries the debug map with the local build paths, and the release
+  script refuses a build that carries a debug map, a local path or a debug hook (debug hooks were
+  never in a release build).
 
 ## v0.1.0 (2026-11-13)
 

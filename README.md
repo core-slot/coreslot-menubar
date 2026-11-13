@@ -41,6 +41,34 @@ brew install --cask core-slot/tap/coreslot-menubar
 The cask does not install coreslot, so an existing coreslot (for example in `~/.local/bin`) is the
 one the app uses. To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Verify the download
+
+The release's sha256 is shown beside `coreslot-menubar-VERSION.zip` on its release page, and the
+cask carries the same value, which Homebrew checks when it installs. For a zip downloaded by hand,
+compare it with:
+
+```sh
+shasum -a 256 coreslot-menubar-VERSION.zip
+```
+
+Once the app is in `/Applications`, check that macOS accepts it as notarised:
+
+```sh
+spctl -a -vv /Applications/coreslot.app
+```
+
+It should say `accepted` and `source=Notarized Developer ID`.
+
+## Uninstall
+
+```sh
+brew uninstall --cask coreslot-menubar
+```
+
+This quits the app and removes it. With `--zap` (`brew uninstall --zap --cask coreslot-menubar`)
+its preferences and saved window state go too. If launch at login was on, its entry may stay in
+System Settings → General → Login Items; remove it there. coreslot itself stays installed.
+
 ## Diagnostics
 
 The app keeps its own log in the macOS unified log, which the system bounds and keeps; it writes
@@ -58,9 +86,11 @@ It logs changes, never every poll, in four categories:
   exit 3, gives none); and each notice as it appears and as it clears (degraded and its reason,
   format not understood, config error, an older coreslot, another schema).
 - `actions`: each cancel asked, not asked (no coreslot, or another action in flight), declined,
-  requested, refused (with what `status` then gave) or failed, with the ticket. Each stop asked,
-  not asked, declined, not sent and why, or `SIGTERM` sent or failed with its errno, with the hold's
-  pid, the process's start time once the first check has passed (`unknown` before), and the hold.
+  requested, refused (with what `status` then gave) or failed, with the ticket. Each stop asked, not
+  asked, declined, not sent and why, or `SIGTERM` sent or failed with its errno, with a pid and a
+  start time from one read: the check that ended the stop, or the read right before the signal (the
+  pid that check or read was given, and `unknown` for the start time when the process could not be
+  read), and the hold.
 - `telemetry`: an error reading the telemetry or the run log, by stream (`samples`, `events`,
   `runs`) and errno, once while it lasts and once when it ends; choosing another coreslot or state
   directory starts afresh, so an error that outlasts the change is logged again.

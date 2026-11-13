@@ -75,7 +75,7 @@ struct TimelineModel {
         let timedOut: Bool
         /// A running hold's expected end, from `left_s`.
         let forecastEndNS: Int64?
-        /// The first live ticket's expected start, from `expected_wait_s`.
+        /// The first live ticket's expected start, from `expected_wait_s`; a 0 is not a start time.
         let forecastStartNS: Int64?
         /// The hover's lines.
         let detail: [String]
@@ -148,7 +148,7 @@ extension Store {
                     SafeText.display(h.label) + (h.container == true ? " · container" : ""),
                     "waited " + (waitFrom.map { span($0, h.startNS) } ?? "before its restart"), "running since \(clock(h.startNS)), \(duration(h.startNS, nowNS))",
                     "needs \(Formatting.size(h.needMiB)) · now \(Formatting.size(h.footprintMiB))" + (peak.map { " · peak \(Formatting.size($0))" } ?? ""),
-                    "finishes in " + Formatting.timeLeft(h.leftS),
+                    Formatting.timeLeft(h.leftS),
                 ] + (h.stops > 0 ? ["restarted after \(h.stops) memory \(h.stops == 1 ? "stop" : "stops")"] : [])))
         }
         let live = doc.tickets.filter { $0.state != "dead" }
@@ -157,7 +157,7 @@ extension Store {
             out.append(.init(
                 id: t.id, run: t.id, rawLabel: t.label, label: SafeText.display(t.label), color: color(t.label), waitFromNS: from, runFromNS: nil,
                 toNS: nowNS, live: true, stopped: false, restart: false, timedOut: false, forecastEndNS: nil,
-                forecastStartNS: first ? t.expectedWaitS.map { ahead(nowNS, $0) } : nil,
+                forecastStartNS: first ? t.expectedWaitS.flatMap { $0 > 0 ? ahead(nowNS, $0) : nil } : nil,
                 detail: [
                     SafeText.display(t.label), "waiting since \(clock(from)), \(duration(from, nowNS))",
                     "needs \(Formatting.size(t.needMiB))",

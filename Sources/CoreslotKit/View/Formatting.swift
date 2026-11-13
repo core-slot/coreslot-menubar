@@ -28,9 +28,9 @@ public enum Formatting {
         return s > 0 ? "starts in " + approximately(s) : "next"
     }
 
-    /// A hold's `left_s`.
+    /// A hold's `left_s`, in the popover and the timeline alike: a 0 is not an end now.
     public static func timeLeft(_ s: Int64?) -> String {
         guard let s else { return "no estimate" }
-        return s > 0 ? approximately(s) : "past its usual time"
+        return s > 0 ? "finishes in " + approximately(s) : "past its usual time"
     }
 }

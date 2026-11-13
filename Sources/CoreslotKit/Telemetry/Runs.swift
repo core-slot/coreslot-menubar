@@ -57,6 +57,8 @@ public struct Runs: Sendable {
     public private(set) var attempts: [Key: Attempt] = [:]
     private(set) var byTicket: [String: Key] = [:]
     private var byHold: [String: Key] = [:]
+    /// A pass-through runs inside its parent's grant and has no run-log line: no attempt of its own.
+    private var passThroughs: Set<Key> = []
     /// In time order.
     public private(set) var heads: [Head] = []
 
@@ -64,6 +66,10 @@ public struct Runs: Sendable {
 
     public mutating func apply(_ e: EventLine) {
         let key = Key(run: e.run, attempt: e.attempt)
+        if passThroughs.contains(key) || e.kind == .outside(passThrough: true) {
+            if case .ended = e.kind { passThroughs.remove(key) } else { passThroughs.insert(key) }
+            return
+        }
         var a = attempts[key] ?? Attempt(key: key, label: e.label)
         a.label = e.label
         switch e.kind {
@@ -86,6 +92,8 @@ public struct Runs: Sendable {
             a.end = End(event: "ended", timeNS: e.timeNS)
             (a.stoppedBy, a.failOpen, a.signal, a.record) = (d.stoppedBy, d.failOpen, d.signal, d.record)
         case .waitEnded(let name): a.end = End(event: name, timeNS: e.timeNS)
+        // It runs from here, unbudgeted: after `--on-timeout run`'s `timeout`, or a state error.
+        case .outside: (a.admittedNS, a.end) = (e.timeNS, nil)
         case .other: break
         }
         attempts[key] = a

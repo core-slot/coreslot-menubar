@@ -1,3 +1,4 @@
+import CoreslotKit
 import SwiftUI
 
 /// Running rows, then waiting rows; past four and five the lists scroll and the rest stays put.
@@ -108,7 +109,7 @@ struct RunningRowView: View {
                         Text(row.quiet).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
-                Text(row.finishes).font(.callout).monospacedDigit().lineLimit(1).layoutPriority(1)
+                Text(Formatting.timeLeft(row.hold.leftS)).font(.callout).monospacedDigit().lineLimit(1).layoutPriority(1)
             }
             if let progress = row.progress {
                 ProgressBar(fraction: progress, color: Palette.label(row.color)).frame(height: 3)
@@ -122,6 +123,7 @@ struct RunningRowView: View {
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .rowAction("Stop", row.stoppable ? stop : nil)
     }
 }
 
@@ -153,6 +155,16 @@ struct WaitingRowView: View {
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .rowAction("Cancel request", row.cancelRequested ? nil : cancel)
+    }
+}
+
+extension View {
+    /// The row's action without a pointer too: in its context menu, and as the action of the row,
+    /// one accessibility element. Nil where the row has none: no menu and no action.
+    fileprivate func rowAction(_ title: String, _ action: (() -> Void)?) -> some View {
+        let button = action.map { Button(title, action: $0) }
+        return accessibilityElement(children: .combine).accessibilityActions { button }.contextMenu { button }
     }
 }
 

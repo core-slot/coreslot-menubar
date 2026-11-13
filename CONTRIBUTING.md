@@ -45,7 +45,9 @@ swift test
 swift test --filter StatusTests
 ```
 
-CI runs both on every pull request and on every push to `main`.
+CI runs `swift build -c release`, `swift test`, then `scripts/bundle.sh --ad-hoc` and
+`codesign --verify --strict --deep build/coreslot.app`, on every pull request and on every push to
+`main`.
 
 ## Fixtures
 
@@ -144,9 +146,13 @@ scripts/release.sh 0.1.0
 ```
 
 `scripts/release.sh` refuses a dirty tree, or a version whose tag `vVERSION` is not at `HEAD`. It
-runs `scripts/bundle.sh` with the Developer ID identity, zips the app, submits the zip to the notary
-service and waits, staples the ticket to the app, checks the app with `spctl --assess`, zips it
-again as `build/coreslot-menubar-VERSION.zip`, and prints the zip's sha256 for the cask. A locked
+runs `scripts/bundle.sh` with the Developer ID identity, then refuses an app whose executable
+carries a debug-map entry (`OSO` or `SO`), a `/Users/` path or a debug hook (`present-window`,
+`--answer`, `--ask-stop`, `--measure`), or that `nm` or `strings` cannot read, and an app signed by
+another team than the project's. It zips the app, submits the zip to the notary service and waits,
+staples the ticket to the app, checks the app with `spctl --assess`, zips it again as
+`build/coreslot-menubar-VERSION.zip`, opens that zip once more and assesses the app inside it, and
+prints the zip's sha256 for the cask. A locked
 keychain stops it before anything is signed, with one sentence asking for the unlock above. It
 pushes nothing and publishes nothing: pushing the tag, the GitHub release with the zip and the
 cask's new `version` and `sha256` in

@@ -25,10 +25,16 @@ public struct DarwinProcessInspector: ProcessInspector {
     public init() {}
 
     public func facts(_ pid: pid_t) -> ProcessFacts? {
-        guard pid >= 2, let before = Self.startSeconds(pid) else { return nil }
-        guard let executable = Self.executable(pid), let arguments = Self.arguments(pid),
+        Self.facts(pid, start: Self.startSeconds, executable: Self.executable, arguments: Self.arguments)
+    }
+
+    static func facts(
+        _ pid: pid_t, start: (pid_t) -> Int64?, executable: (pid_t) -> FileID?, arguments: (pid_t) -> [String]?
+    ) -> ProcessFacts? {
+        guard pid >= 2, let before = start(pid) else { return nil }
+        guard let executable = executable(pid), let arguments = arguments(pid),
               // The same start time on both sides: the file and arguments are of one process.
-              Self.startSeconds(pid) == before
+              start(pid) == before
         else { return nil }
         return ProcessFacts(executable: executable, startSeconds: before, arguments: arguments)
     }

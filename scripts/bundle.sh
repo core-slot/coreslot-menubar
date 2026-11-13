@@ -83,6 +83,10 @@ work="build/icon"
 rm -rf "$app" "$work"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$work/AppIcon.iconset"
 cp "$bin/coreslot-menubar" "$app/Contents/MacOS/coreslot-menubar"
+# The linker leaves a debug map (OSO and SO entries) naming the build directory's object files, so
+# the build machine's paths would ship. strip -S removes the debug symbol table entries; it must
+# run before codesign, which seals the file's bytes.
+strip -S "$app/Contents/MacOS/coreslot-menubar"
 
 # The icon is the menu bar glyph itself: MenuBarIcon.swift compiled beside a copy of IconState's
 # cases (a case added there and not here fails this compile), drawn light on a dark tile.

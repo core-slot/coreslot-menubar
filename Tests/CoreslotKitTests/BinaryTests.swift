@@ -16,12 +16,27 @@ import Testing
         #expect(try #require(Version.parse(versionLine: "coreslot 0.0.0-dev (protocol formats: 2)")).isDevelopment)
     }
 
-    // Mutation: drop the check that the format is a number; the line with `x` parses, red.
+    // coreslot's contract (https://github.com/core-slot/coreslot/blob/v0.8.0/docs/compatibility.md, "Supported"): `(protocol formats: <list>)`;
+    // its own test (https://github.com/core-slot/coreslot/blob/v0.8.0/cmd/coreslot/commands_test.go,
+    // `versionLine`) pins the list as `[0-9, ]+`. Mutation: split the whole line on spaces (drop
+    // `maxSplits: 4`), so a list with spaces is more than five words; red. Mutation: require a
+    // number between each two commas (the grammar before); `2,`, `2,, 3` and `2 3` do not parse, red.
+    @Test(arguments: ["coreslot 0.9.0 (protocol formats: 2, 3)", "coreslot 0.9.0 (protocol formats: 2,3)",
+                      "coreslot 0.9.0 (protocol formats: 2, 3, 4)\n", "coreslot 0.9.0 (protocol formats: 2,)",
+                      "coreslot 0.9.0 (protocol formats: 2,, 3)", "coreslot 0.9.0 (protocol formats: 2 3)",
+                      "coreslot 0.9.0 (protocol formats:  2)"])
+    func aLineListingSeveralFormatsParses(_ line: String) {
+        #expect(Version.parse(versionLine: line) == Version(0, 9, 0))
+    }
+
+    // Mutation: drop the check that the list is digits, commas and spaces; the lines with `x`, `-`
+    // and a full-width digit parse, red. Mutation: drop the check for a digit; `, ` parses, red.
     // Mutation: drop `w.count == 5`; the line cut after `formats:` traps on `w[4]`, red (crash).
     @Test(arguments: ["", "coreslot", "coreslot 0.8 (protocol formats: 2)", "coreslot 0.8.0 (protocol formats:",
-                      "coreslot 0.8.0 (protocol formats: )",
-                      "coreslot 0.8.0 (protocol formats: 2, 3)", "coreslot 0.8.0 (protocol formats: x)",
-                      "other 0.8.0 (protocol formats: 2)"])
+                      "coreslot 0.8.0 (protocol formats: )", "coreslot 0.8.0 (protocol formats: x)",
+                      "coreslot 0.8.0 (protocol formats: 2, x)", "coreslot 0.8.0 (protocol formats: , )",
+                      "coreslot 0.8.0 (protocol formats: -2)", "coreslot 0.8.0 (protocol formats: \u{FF12})",
+                      "coreslot 0.8.0 (protocol formats: 2, 3", "other 0.8.0 (protocol formats: 2)"])
     func anythingElseDoesNot(_ line: String) {
         #expect(Version.parse(versionLine: line) == nil)
     }

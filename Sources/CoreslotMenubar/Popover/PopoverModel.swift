@@ -63,7 +63,6 @@ struct RunningRow: Identifiable {
     let hold: StatusDocument.Hold
     let label: String
     let color: Int
-    let finishes: String
     /// Elapsed against the typical run time, 0 to 1; nil without a typical run time.
     let progress: Double?
     let figures: String
@@ -184,7 +183,6 @@ extension Store {
     }
 
     private func runningRow(_ h: StatusDocument.Hold) -> RunningRow {
-        let finishes = (h.leftS ?? 0) > 0 ? "finishes in " + Formatting.timeLeft(h.leftS) : Formatting.timeLeft(h.leftS)
         let typical = h.typicalS ?? 0
         let points = record.tracks.points(h.name)
         let peak = record.tracks.peak(h.name)
@@ -193,7 +191,7 @@ extension Store {
         figures += " · reserved \(Formatting.size(h.needMiB))"
         let top = Double(max(1, peak ?? 0))
         return RunningRow(
-            hold: h, label: SafeText.display(h.label), color: color(h.label), finishes: finishes,
+            hold: h, label: SafeText.display(h.label), color: color(h.label),
             progress: typical > 0 ? min(1, h.heldForS / Double(typical)) : nil, figures: figures,
             spark: points.count >= 2 ? points.map { Double($0.footprintMiB) / top } : [],
             peakIndex: points.count >= 2 ? points.lastIndex { $0.footprintMiB == peak } : nil,
