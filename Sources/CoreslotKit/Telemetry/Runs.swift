@@ -60,8 +60,10 @@ package struct Runs: Sendable {
     private(set) var byTicket: [String: Key] = [:]
     private var byHold: [String: Key] = [:]
     /// A pass-through runs inside its parent's grant and has no run-log line: no attempt of its own.
-    /// By when its first line was written.
-    private(set) var passThroughs: [Key: Int64] = [:]
+    /// By its parent's hold, and when its first line was written.
+    private(set) var passThroughs: [Key: (parent: String, timeNS: Int64)] = [:]
+    /// Since when, by `prune`'s date, `status` has not listed an unended attempt or a pass-through's parent.
+    private var unlisted: [Key: Int64] = [:]
     /// In time order.
     package private(set) var heads: [Head] = []
 
@@ -69,10 +71,8 @@ package struct Runs: Sendable {
 
     package mutating func apply(_ e: EventLine) {
         let key = Key(run: e.run, attempt: e.attempt)
-        if passThroughs[key] != nil || e.kind == .outside(passThrough: true) {
-            if case .ended = e.kind { passThroughs[key] = nil } else { passThroughs[key] = passThroughs[key] ?? e.timeNS }
-            return
-        }
+        if case .outside(passThroughOf: let parent?) = e.kind, passThroughs[key] == nil { passThroughs[key] = (parent, e.timeNS) }
+        guard passThroughs[key] == nil else { if case .ended = e.kind { passThroughs[key] = nil }; return }
         var a = attempts[key] ?? Attempt(key: key, label: e.label)
         (a.label, a.lastNS) = (e.label, max(a.lastNS, e.timeNS))
         switch e.kind {
@@ -102,15 +102,23 @@ package struct Runs: Sendable {
         attempts[key] = a
     }
 
-    /// Drops the attempts that ended before `date`, and their tickets; one with no end, killed or
-    /// lost (https://github.com/core-slot/coreslot/blob/v0.8.0/docs/telemetry.md), once its last
-    /// line is older and `live`, if read, lists neither its ticket nor its hold; and pass-throughs
-    /// older, which never write `ended` when killed with their parent's group.
+    /// Drops the attempts that ended before `date`, and their tickets. One with no end, killed or
+    /// lost, or a pass-through, which writes no `ended` when killed with its parent's group
+    /// (https://github.com/core-slot/coreslot/blob/v0.8.0/docs/telemetry.md), goes once its last line
+    /// is older and `live` has not listed its ticket, hold or parent for a minute of `date`: coreslot
+    /// releases a hold before it appends `ended`. With no `live`, it stays.
     package mutating func prune(endedBefore date: Date, live: StatusDocument?) {
         let cut = date.nanosecondsSince1970
         let listed = live.map { d in Set(d.holds.compactMap { byHold[$0.name] } + d.tickets.compactMap { $0.name.flatMap { byTicket[$0] } }) }
-        attempts = attempts.filter { _, a in a.end.map { $0.timeNS >= cut } ?? (a.lastNS >= cut || listed?.contains(a.key) ?? true) }
-        passThroughs = passThroughs.filter { $0.value >= cut }
+        let (holds, old) = (live.map { Set($0.holds.map(\.name)) }, unlisted)
+        var marks: [Key: Int64] = [:]
+        func kept(_ key: Key, _ lastNS: Int64, listed: Bool?) -> Bool {
+            if listed == false, lastNS < cut { marks[key] = old[key] ?? cut }
+            return marks[key].map { $0 > cut - 60_000_000_000 } ?? true
+        }
+        attempts = attempts.filter { k, a in a.end.map { $0.timeNS >= cut } ?? kept(k, a.lastNS, listed: listed?.contains(k)) }
+        passThroughs = passThroughs.filter { k, p in kept(k, p.timeNS, listed: holds?.contains(p.parent)) }
+        unlisted = marks
         byTicket = byTicket.filter { attempts[$0.value] != nil }
         byHold = byHold.filter { attempts[$0.value] != nil }
         heads.removeAll { $0.timeNS < cut - Self.headLineNS }

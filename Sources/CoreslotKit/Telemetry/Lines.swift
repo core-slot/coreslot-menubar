@@ -63,8 +63,8 @@ package struct EventLine: JSONLine, Sendable, Equatable {
         /// A line that ended the wait without a start, by its name: `cancelled`, `interrupted`,
         /// `refused`, `timeout` or `not_started`.
         case waitEnded(String)
-        /// The command started outside the budget; true for a pass-through inside a parent's grant.
-        case outside(passThrough: Bool)
+        /// The command started outside the budget; for a pass-through, its parent's hold ("" if unnamed).
+        case outside(passThroughOf: String?)
         /// An event this app does not use, by its name.
         case other(String)
     }
@@ -127,7 +127,7 @@ package struct EventLine: JSONLine, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, run, attempt, n, label, hold, kind
+        case v, e, run, attempt, n, label, hold, kind, parent
         case timeNS = "time_ns"
     }
 }
@@ -193,7 +193,7 @@ extension EventLine {
         case "waiting": kind = .waiting(try Waiting(from: decoder))
         case "admitted": kind = .admitted(try c.decodeIfPresent(String.self, forKey: .hold))
         case "ended": kind = .ended(try Ended(from: decoder))
-        case "outside": kind = .outside(passThrough: try c.decodeIfPresent(String.self, forKey: .kind) == "pass_through")
+        case "outside": kind = .outside(passThroughOf: try c.decodeIfPresent(String.self, forKey: .kind) == "pass_through" ? c.decodeIfPresent(String.self, forKey: .parent) ?? "" : nil)
         case let e where ["cancelled", "interrupted", "refused", "timeout", "not_started"].contains(e): kind = .waitEnded(e)
         case let e: kind = .other(e)
         }
