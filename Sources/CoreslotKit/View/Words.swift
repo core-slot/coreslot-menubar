@@ -14,21 +14,15 @@ public enum Words {
         }
     }
 
-    /// The sentence a notice adds to the header; nil for a development build, which needs none.
-    public static func notice(_ notice: Notice) -> String? {
+    /// The sentence a notice adds to the header.
+    public static func notice(_ notice: Notice) -> String {
         switch notice {
         case .tooOld: "Update coreslot to \(Version.minimum) or later"
-        case .development: nil
         case .degraded(let reason): "coreslot is degraded: \(SafeText.display(reason))"
         case .configError(let error): "coreslot's configuration has a problem: \(SafeText.display(error))"
         case .formatNotUnderstood: "This coreslot writes a format this app does not know"
         case .schema: "This coreslot's status document is newer than this app"
         }
-    }
-
-    /// The level, then each notice's sentence; the sentences alone for a schema-only document.
-    public static func header(_ doc: StatusDocument, notices: [Notice]) -> String {
-        ((doc.isSchemaOnly ? [] : [level(doc.watch)]) + notices.compactMap(notice)).joined(separator: " · ")
     }
 
     /// Why a ticket waits, from its run's latest `waiting` line; nil for a code this app does not

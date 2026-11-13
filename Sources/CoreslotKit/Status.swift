@@ -26,9 +26,6 @@ public struct StatusDocument: Decodable, Sendable, Equatable {
     public let cancelRequests: [String]
     public let ignored: [String: Int64]
     public let observedS: Double
-    /// True for a document of another schema or of a coreslot too old to decode: only its notices
-    /// are shown, and its other keys, which are invented, are not read.
-    public internal(set) var isSchemaOnly = false
 
     enum CodingKeys: String, CodingKey {
         case schema
@@ -183,7 +180,13 @@ public struct StatusDocument: Decodable, Sendable, Equatable {
         }
     }
 
+    /// Throws `OtherSchema` for a schema other than 1, whatever its other keys.
     public static func decode(_ data: Data) throws -> StatusDocument {
-        try JSONDecoder().decode(StatusDocument.self, from: data)
+        _ = try JSONDecoder().decode(SchemaProbe.self, from: data)
+        return try JSONDecoder().decode(StatusDocument.self, from: data)
+    }
+
+    private struct SchemaProbe: Decodable {
+        init(from decoder: any Decoder) throws { try decoder.container(keyedBy: CodingKeys.self).checkSchema(.schema) }
     }
 }

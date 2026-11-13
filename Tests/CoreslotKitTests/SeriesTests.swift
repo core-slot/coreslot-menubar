@@ -123,6 +123,6 @@ import Testing
         #expect(w.medianWaitS == 12.5 && w.longestWaitS == 90)
         var other = raw
         other["schema"] = 2
-        #expect(throws: DecodingError.self) { try JSONDecoder().decode(Report.self, from: Fixture.encode(other)) }
+        #expect(throws: OtherSchema.self) { try JSONDecoder().decode(Report.self, from: Fixture.encode(other)) }
     }
 }

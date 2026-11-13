@@ -48,7 +48,7 @@ public struct SampleLine: Decodable, Sendable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        try Version1.check(c, .v)
+        try c.checkSchema(.v)
         timeNS = try c.decode(.timeNS, in: Clamp.time)
         level = try c.decode(String.self, forKey: .level)
         headroomOK = try c.decode(Bool.self, forKey: .headroomOK)
@@ -146,7 +146,7 @@ public struct EventLine: Decodable, Sendable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        try Version1.check(c, .v)
+        try c.checkSchema(.v)
         run = try c.decode(String.self, forKey: .run)
         attempt = try c.decode(.attempt, in: Clamp.amount)
         n = try c.decode(.n, in: Clamp.amount)
@@ -198,7 +198,7 @@ public struct MemoryLine: Decodable, Sendable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        try Version1.check(c, .v)
+        try c.checkSchema(.v)
         guard try c.decode(String.self, forKey: .e) == "memory" else {
             throw DecodingError.dataCorruptedError(forKey: .e, in: c, debugDescription: "not a memory line")
         }
@@ -267,11 +267,14 @@ extension KeyedDecodingContainer {
     }
 }
 
-enum Version1 {
-    /// A line of another schema is not read: its keys may mean something else.
-    static func check<K: CodingKey>(_ c: KeyedDecodingContainer<K>, _ key: K) throws {
-        guard try c.decode(Int64.self, forKey: key) == 1 else {
-            throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "unknown line schema")
-        }
+/// Thrown for a document or line of a schema other than 1: its keys may mean something else.
+struct OtherSchema: Error {
+    let schema: Int64
+}
+
+extension KeyedDecodingContainer {
+    func checkSchema(_ key: Key) throws {
+        let schema = try decode(Int64.self, forKey: key)
+        guard schema == 1 else { throw OtherSchema(schema: schema) }
     }
 }

@@ -15,9 +15,7 @@ public struct Report: Decodable, Sendable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        guard try c.decode(Int64.self, forKey: .schema) == 1 else {
-            throw DecodingError.dataCorruptedError(forKey: .schema, in: c, debugDescription: "unknown report schema")
-        }
+        try c.checkSchema(.schema)
         runs = try c.decode(Int64.self, forKey: .runs)
         let w = try c.nestedContainer(keyedBy: WaitKeys.self, forKey: .waits)
         medianWaitS = try w.decode(Double.self, forKey: .median)

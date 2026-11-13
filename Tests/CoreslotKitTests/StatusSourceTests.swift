@@ -54,20 +54,20 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
         #expect(interpret(RunResult(exitCode: 0, stdout: Data("{".utf8)), binary: release) == .problem(.malformed))
     }
 
-    // Mutation: decode before the schema probe; the schema-2 document that decodes keeps its holds, red.
-    // Mutation: drop the schema probe; the document of another shape is .malformed, red.
-    @Test func anotherSchemaIsANoticeOnly() throws {
+    // Mutation: drop the schema probe in StatusDocument.decode; the schema-2 document that decodes
+    // is a document, and the one of another shape is .malformed, red.
+    @Test func anotherSchemaIsNoticesOnly() throws {
         let decodable = try with("status-queue.json") { $0["schema"] = 2 }
         for data in [decodable, Data(#"{"schema": 2, "queue": []}"#.utf8)] {
-            #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: release) == .document(.schemaOnly(2), [.schema(2)]))
+            #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: release) == .notices([.schema(2)]))
         }
     }
 
     // Mutation: drop the too-old branch for a stdout that does not decode; it is .malformed, red.
-    @Test func aCoreslotOlderThan04IsTooOldNotMalformed() throws {
+    @Test func aCoreslotTooOldToDecodeIsTooOldNotMalformed() throws {
         let data = try with("status-0.7.0.json") { $0["watch"] = nil; $0["mem"] = nil }
         let old = CoreslotBinary(url: release.url, version: Version(0, 3, 0))
-        #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: old) == .document(.schemaOnly(1), [.tooOld(old.version)]))
+        #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: old) == .notices([.tooOld]))
         #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: release) == .problem(.malformed))
     }
 
@@ -79,18 +79,18 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
             Issue.record("not a document")
             return
         }
-        #expect(notices == [.tooOld(Version(0, 7, 0))])
+        #expect(notices == [.tooOld])
     }
 
-    // Mutation: test `< .minimum` before isDevelopment; a 0.0.0 build reads as too old, red.
-    @Test func aDevelopmentBuildSaysSo() throws {
+    // Mutation: drop the isDevelopment check; a 0.0.0 build reads as too old, red.
+    @Test func aDevelopmentBuildIsNotTooOld() throws {
         let data = try Fixture.data("status-queue.json")
         let dev = CoreslotBinary(url: release.url, version: .development)
         guard case .document(_, let notices) = interpret(RunResult(exitCode: 0, stdout: data), binary: dev) else {
             Issue.record("not a document")
             return
         }
-        #expect(notices == [.development])
+        #expect(notices == [])
     }
 
     // Mutation: check timedOut after the document; a document cut short by the kill decodes as malformed, red.

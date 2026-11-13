@@ -25,15 +25,15 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(IconState(.document(try document(name), [])) == want)
     }
 
-    // Mutation: make `.tooOld` unavailable like `.schema`; the 0.7.0 reading goes dark, red.
+    // Mutation: show a reading of notices alone as idle, like a document with nothing in it; red.
     @Test func perNoticeAndProblem() throws {
         let old = try document("status-0.7.0.json")
-        #expect(IconState(.document(old, [.tooOld(Version(0, 7, 0))])) == .waiting(fill: 0))
+        #expect(IconState(.document(old, [.tooOld])) == .waiting(fill: 0))
         let queue = try document("status-queue.json")
-        for n: Notice in [.development, .degraded("x"), .formatNotUnderstood, .configError("x")] {
+        for n: Notice in [.degraded("x"), .formatNotUnderstood, .configError("x")] {
             #expect(IconState(.document(queue, [n])) == .waiting(fill: 0), "\(n)")
         }
-        #expect(IconState(.document(StatusDocument.schemaOnly(2), [.schema(2)])) == .unavailable)
+        #expect(IconState(.notices([.schema(2)])) == .unavailable && IconState(.notices([.tooOld])) == .unavailable)
         for p: Problem in [.notFound, .stateUnreadable, .failed(exitCode: 70), .malformed, .timedOut] {
             #expect(IconState(.problem(p)) == .unavailable, "\(p)")
         }
@@ -137,17 +137,12 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
     }
 
     // Mutation: put `degraded.reason` in the sentence without SafeText; the U+202E arrives, red.
-    // Mutation: say the level for a schema-only document too; "No recent reading · …", red.
     @Test func theNotices() throws {
-        #expect(Words.header(try document("status-queue.json"), notices: [.tooOld(Version(0, 7, 0))])
-            == "Learning · Update coreslot to 0.8.0 or later")
+        #expect(Words.notice(.tooOld) == "Update coreslot to 0.8.0 or later")
         #expect(Words.notice(.degraded("lock\u{202E}txt")) == "coreslot is degraded: lock\\u{202E}txt")
         #expect(Words.notice(.configError("bad\nline")) == "coreslot's configuration has a problem: bad\\u{000A}line")
         #expect(Words.notice(.formatNotUnderstood) == "This coreslot writes a format this app does not know")
         #expect(Words.notice(.schema(2)) == "This coreslot's status document is newer than this app")
-        #expect(Words.notice(.development) == nil)
-        #expect(Words.header(.schemaOnly(2), notices: [.schema(2), .development])
-            == "This coreslot's status document is newer than this app")
     }
 
     // Mutation: drop "on the machine" for a container request; red.
