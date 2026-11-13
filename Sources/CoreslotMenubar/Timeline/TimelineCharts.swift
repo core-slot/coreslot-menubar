@@ -317,9 +317,18 @@ func nowLine(_ c: inout Sketcher, _ size: CGSize, at x: Double) {
     c.stroke(now, with: .secondary, lineWidth: 1)
 }
 
-/// A reason's colour, always beside its name in the legend: one per `Words.reasons`, in its order.
+/// A reason's colour, always beside its name in the legend: the tone of its row of `Words.reasons`.
 private func reasonColor(_ key: String) -> Color {
-    Words.reasons.firstIndex { $0.key == key }.map { [Color.orange, .blue, .teal, .gray, .red, .pink, .purple][$0] } ?? .brown
+    switch Words.reasons.first(where: { $0.key == key })?.tone {
+    case .orange: .orange
+    case .blue: .blue
+    case .teal: .teal
+    case .gray: .gray
+    case .red: .red
+    case .pink: .pink
+    case .purple: .purple
+    case nil: .brown
+    }
 }
 
 private struct Swatch: View {

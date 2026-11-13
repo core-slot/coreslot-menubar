@@ -55,11 +55,11 @@ package enum Words {
     }
 
     /// The reasons this app knows, in the legend's order: the key (every restart reason is
-    /// `restart_`) and the name, which `reason` also says where it has no figures to add.
-    package static let reasons: [(key: String, name: String)] = [
-        ("room_short", "Not enough free memory"), ("behind_head", "Behind the first in line"),
-        ("behind_ticket", "Waits its turn"), ("section_busy", "Waiting for the queue"), ("watch_level", "Memory is tight"),
-        ("watch_spacing", "One at a time after memory pressure"), ("restart_", "Restarting after a memory stop"),
+    /// `restart_`), the name, which `reason` also says where it has no figures to add, and the tone.
+    package static let reasons: [(key: String, name: String, tone: ReasonTone)] = [
+        ("room_short", "Not enough free memory", .orange), ("behind_head", "Behind the first in line", .blue),
+        ("behind_ticket", "Waits its turn", .teal), ("section_busy", "Waiting for the queue", .gray), ("watch_level", "Memory is tight", .red),
+        ("watch_spacing", "One at a time after memory pressure", .pink), ("restart_", "Restarting after a memory stop", .purple),
     ]
 
     /// A reason's name, for the timeline's legend; nil for a code this app does not know.
@@ -93,3 +93,6 @@ package enum Words {
         return processChecked ? "Stop it where it was started" : "This process could not be checked"
     }
 }
+
+/// A reason's colour in the legend, one of the app's system colours.
+package enum ReasonTone: Sendable { case orange, blue, teal, gray, red, pink, purple }

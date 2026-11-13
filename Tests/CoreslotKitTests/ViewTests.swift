@@ -188,10 +188,10 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(Words.reason(.init(reason: "behind_ticket"), needMiB: 1, realMemory: false, ageS: 5) == "Waits its turn")
     }
 
-    // Mutation: drop the `restart_` row of `Words.reasons`, the one table of names and words; a restart's reason has no name, red.
+    // Mutation: drop the `restart_` row of `Words.reasons`; a restart's reason has no name, red. Mutation: give `behind_head` `room_short`'s tone, red.
     @Test func theReasonsHaveNamesForTheLegend() {
         let codes = ["room_short", "behind_head", "behind_ticket", "section_busy", "watch_level", "watch_spacing", "restart_calm"]
-        #expect(Set(codes.compactMap(Words.reasonName)).count == codes.count)
+        #expect(Set(codes.compactMap(Words.reasonName)).count == codes.count && Set(Words.reasons.map(\.tone)).count == codes.count)
         #expect(Words.reasonName("restart_margin") == Words.reasonName("restart_calm") && Words.reasonName("new_code") == nil)
     }
 
