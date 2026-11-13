@@ -45,7 +45,9 @@ swift test
 swift test --filter StatusTests
 ```
 
-CI runs both on every pull request and on every push to `main`.
+CI runs `swift build -c release`, `swift test`, then `scripts/bundle.sh --ad-hoc` and
+`codesign --verify --strict --deep build/coreslot.app`, on every pull request and on every push to
+`main`.
 
 ## Fixtures
 
