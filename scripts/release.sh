@@ -63,6 +63,6 @@ rm -f "$upload"
 
 xcrun stapler staple "$app"
 xcrun stapler validate "$app"
-ditto -c -k --norsrc --noextattr --noacl --keepParent "$app" "$zip"
 spctl --assess --type execute -v "$app"
+ditto -c -k --norsrc --noextattr --noacl --keepParent "$app" "$zip"
 shasum -a 256 "$zip"
