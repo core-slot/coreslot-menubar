@@ -206,6 +206,7 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
 @Suite struct ProblemWordsTests {
     // Mutation: give a failed `status` the state-unreadable words; exit 70 no longer says its
     // status, and the two states read the same, red.
+    // Mutation: drop the brew command from the not-found fix, red.
     @Test func eachProblemIsOneStateWithItsFix() {
         let all: [Problem] = [.notFound, .stateUnreadable, .failed(exitCode: 70), .malformed, .timedOut]
         let states = all.map { Words.problem($0).state }
@@ -214,6 +215,7 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(Words.problem(.stateUnreadable).fix.contains("coreslot doctor"))
         #expect(Words.problem(.failed(exitCode: 70)).state == "coreslot status failed with exit status 70")
         #expect(Words.problem(.notFound).fix.contains("0.8.0"))
+        #expect(Words.problem(.notFound).fix.contains("brew install core-slot/tap/coreslot"))
     }
 
     // Mutation: drop the negative case; -24 reads "failed with exit status -24", red.

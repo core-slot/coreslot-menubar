@@ -73,7 +73,7 @@ public enum Words {
     public static func problem(_ problem: Problem) -> (state: String, fix: String) {
         switch problem {
         case .notFound:
-            ("coreslot was not found", "Install coreslot \(Version.minimum) or later in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")
+            ("coreslot was not found", "Install coreslot \(Version.minimum) or later with brew install core-slot/tap/coreslot, or put it in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")
         case .stateUnreadable:
             ("coreslot cannot read its state", "Run coreslot doctor in a terminal to see why.")
         case .failed(let code) where code < 0: // -errno: it could not be started or waited for
