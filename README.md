@@ -41,6 +41,38 @@ brew install --cask core-slot/tap/coreslot-menubar
 The cask does not install coreslot, so an existing coreslot (for example in `~/.local/bin`) is the
 one the app uses. To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Diagnostics
+
+The app keeps its own log in the macOS unified log, which the system bounds and keeps; it writes
+no file of its own. When the app showed or did something unexpected, read the last day with:
+
+```sh
+log show --predicate 'subsystem == "io.github.core-slot.menubar"' --last 1d --style compact
+```
+
+It logs changes, never every poll, in four categories:
+
+- `status`: the coreslot found, changed or lost, with its path, and its version when found; each
+  change in what `coreslot status --json` gave: a document, notices only, or a problem in the
+  popover's words, which give the exit status or system error of a failed `status` (a state error,
+  exit 3, gives none); and each notice as it appears and as it clears (degraded and its reason,
+  format not understood, config error, an older coreslot, another schema).
+- `actions`: each cancel asked, not asked (no coreslot, or another action in flight), declined,
+  requested, refused (with what `status` then gave) or failed, with the ticket. Each stop asked,
+  not asked, declined, not sent and why, or `SIGTERM` sent or failed with its errno, with the hold's
+  pid, the process's start time once the first check has passed (`unknown` before), and the hold.
+- `telemetry`: an error reading the telemetry or the run log, by stream (`samples`, `events`,
+  `runs`) and errno, once while it lasts and once when it ends; choosing another coreslot or state
+  directory starts afresh, so an error that outlasts the change is logged again.
+- `settings`: the coreslot and the state directory chosen, by path, and launch at login turned on
+  or off, with the status the system then reports and its error, if any.
+
+Failures are logged as errors, everything else as notices. A process's arguments are never logged.
+Text from the state directory, such as hold and ticket names (which carry part of a label) and
+reasons, is logged with its control and invisible characters escaped, after the app's own facts, so
+the system's cut of a long line takes the name, not the facts. For coreslot's own side, run
+`coreslot doctor`.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

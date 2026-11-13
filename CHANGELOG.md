@@ -6,6 +6,13 @@ All notable changes to this project are recorded here. The format follows
 
 ## Unreleased
 
+### Added
+
+- The app's own log in the macOS unified log, subsystem `io.github.core-slot.menubar`: changes in
+  what coreslot reports, the coreslot found, each cancel and stop and its outcome, errors reading
+  the record, and the choices made in Settings. The README's Diagnostics section has the command
+  that reads it.
+
 ## v0.1.0 (2026-11-13)
 
 The first release: a menu bar view of one machine's coreslot, for macOS 26 or later on Apple silicon,

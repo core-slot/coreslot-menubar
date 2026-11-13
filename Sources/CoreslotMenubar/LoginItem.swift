@@ -51,6 +51,7 @@ final class LoginItem {
             failure = error.localizedDescription
         }
         refresh()
+        Log.settings.say("launch at login \(on ? "on" : "off") asked; status \(state)\(failure.map { "; failed: \($0)" } ?? "")", failure: failure != nil)
     }
 
     func openSystemSettings() {
