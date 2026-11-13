@@ -15,8 +15,7 @@ package func cancel(ticketID: String, using binary: CoreslotBinary, runner: Runn
     switch r.exitCode {
     case 0: return .requested
     case 75:
-        let s = await runner.run(binary.url, ["status", "--json"], environment: nil, timeout: StatusSource.statusTimeout)
-        return .refused(interpret(s, binary: binary))
+        return .refused(await readStatus(binary, runner: runner))
     case nil: return .failed(.notFound)
     case let code?: return .failed(.failed(exitCode: code))
     }

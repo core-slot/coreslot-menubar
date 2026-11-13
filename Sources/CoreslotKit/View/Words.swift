@@ -19,17 +19,17 @@ package enum Words {
         }
     }
 
-    /// The sentence a notice adds to the header.
-    package static func notice(_ notice: Notice) -> String {
+    /// The sentence a notice adds to the header, and the log's words for it.
+    package static func notice(_ notice: Notice) -> (header: String, log: String) {
         switch notice {
-        case .tooOld: "Update coreslot to \(Version.minimum) or later"
-        case .degraded(let reason): "coreslot is degraded: \(SafeText.display(reason))"
-        case .configError(let error): "coreslot's configuration has a problem: \(SafeText.display(error))"
-        case .formatNotUnderstood(let error):
-            "This coreslot does not understand the state directory's format: update or repair coreslot"
-                + (error.isEmpty ? "" : " (\(SafeText.display(error)))")
-        case .schema(let n) where n > 1: "This coreslot's status document is newer than this app"
-        case .schema: "This coreslot's status document has a schema this app does not know"
+        case .tooOld: ("Update coreslot to \(Version.minimum) or later", "coreslot older than \(Version.minimum)")
+        case .degraded(let r): ("coreslot is degraded: \(SafeText.display(r))", "degraded: " + SafeText.display(r))
+        case .configError(let e): ("coreslot's configuration has a problem: \(SafeText.display(e))", "config error: " + SafeText.display(e))
+        case .formatNotUnderstood(let e):
+            ("This coreslot does not understand the state directory's format: update or repair coreslot"
+                + (e.isEmpty ? "" : " (\(SafeText.display(e)))"), "format not understood: " + SafeText.display(e))
+        case .schema(let n) where n > 1: ("This coreslot's status document is newer than this app", "schema \(n)")
+        case .schema(let n): ("This coreslot's status document has a schema this app does not know", "schema \(n)")
         }
     }
 
@@ -48,42 +48,41 @@ package enum Words {
         case "behind_head":
             text = w.noPass == "too_long" ? "Fits, but runs longer than the first in line waits"
                 : "Fits, but behind the first in line"
-        case "behind_ticket": text = "Waits its turn"
-        case "section_busy": text = "Waiting for the queue"
-        case "watch_level": text = "Memory is tight"
         case "watch_spacing": text = "Starting one at a time after memory pressure"
-        case let r where r.hasPrefix("restart_"): text = "Restarting after a memory stop"
-        default: return nil
+        case let code: guard let name = reasonName(code) else { return nil }; text = name
         }
         return ageS > 5 ? "\(text) · \(Formatting.duration(Double(ageS))) ago" : text
     }
 
-    /// A reason's name, for the timeline's legend: `reason`'s words, but where those carry
-    /// figures; nil for a code this app does not know.
+    /// The reasons this app knows, in the legend's order: the key (every restart reason is
+    /// `restart_`) and the name, which `reason` also says where it has no figures to add.
+    package static let reasons: [(key: String, name: String)] = [
+        ("room_short", "Not enough free memory"), ("behind_head", "Behind the first in line"),
+        ("behind_ticket", "Waits its turn"), ("section_busy", "Waiting for the queue"), ("watch_level", "Memory is tight"),
+        ("watch_spacing", "One at a time after memory pressure"), ("restart_", "Restarting after a memory stop"),
+    ]
+
+    /// A reason's name, for the timeline's legend; nil for a code this app does not know.
     package static func reasonName(_ code: String) -> String? {
-        switch code {
-        case "room_short": "Not enough free memory"
-        case "behind_head": "Behind the first in line"
-        case "watch_spacing": "One at a time after memory pressure"
-        default: reason(.init(reason: code), needMiB: 0, realMemory: false, ageS: 0)
-        }
+        reasons.first(where: { $0.key == (code.hasPrefix("restart_") ? "restart_" : code) })?.name
     }
 
-    /// The one state shown when there is no document, and what to do about it.
-    package static func problem(_ problem: Problem) -> (state: String, fix: String) {
+    /// The one state shown when there is no document, and what to do about it; `command` is the
+    /// coreslot command that gave the problem.
+    package static func problem(_ problem: Problem, command: String = "status") -> (state: String, fix: String) {
         switch problem {
         case .notFound:
             ("coreslot was not found", "Install coreslot \(Version.minimum) or later with brew install core-slot/tap/coreslot, or put it in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")
         case .stateUnreadable:
             ("coreslot cannot read its state", "Run coreslot doctor in a terminal to see why.")
         case .failed(let code) where code < 0: // -errno: it could not be started or waited for
-            ("coreslot status could not be run (system error \(-code))", "The next reading tries again.")
+            ("coreslot \(command) could not be run (system error \(-code))", "The next reading tries again.")
         case .failed(let code):
-            ("coreslot status failed with exit status \(code)", "Run coreslot doctor in a terminal to see why.")
+            ("coreslot \(command) failed with exit status \(code)", "Run coreslot doctor in a terminal to see why.")
         case .malformed:
             ("coreslot printed a status this app cannot read", "Run coreslot doctor, or update this app.")
         case .timedOut:
-            ("coreslot status did not answer in time", "The next reading tries again; coreslot doctor can say what is slow.")
+            ("coreslot \(command) did not answer in time", "The next reading tries again; coreslot doctor can say what is slow.")
         }
     }
 

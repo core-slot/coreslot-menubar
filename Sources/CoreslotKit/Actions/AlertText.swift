@@ -48,22 +48,25 @@ package enum AlertText {
             confirm: "Withdraw request")
     }
 
-    /// Why nothing was sent; nil for `.ready`.
-    package static func refusal(_ c: StopCheck) -> String? {
+    private static let changed = "This command changed since it was shown; nothing was sent."
+
+    /// Why nothing was sent, in the log's words and the person's; nil for `.ready`.
+    package static func refusal(_ c: StopCheck) -> (log: String, alert: String)? {
         switch c {
         case .ready: nil
-        case .gone: "This command has already ended; nothing was sent."
-        case .changed, .differs: "This command changed since it was shown; nothing was sent."
-        case .refused: "This process could not be confirmed as the command coreslot reports; nothing was sent."
+        case .gone: ("the hold is gone", "This command has already ended; nothing was sent.")
+        case .changed: ("the hold is no longer stoppable", changed)
+        case .differs: ("the process differs from the one confirmed", changed)
+        case .refused(let r, _, _): (r, "This process could not be confirmed as the command coreslot reports; nothing was sent.")
         }
     }
 
-    /// What went wrong with the signal; nil when it was sent.
-    package static func stopOutcome(_ o: StopOutcome) -> String? {
+    /// What became of the signal, in the log's words, and the person's when it was not sent.
+    package static func stopOutcome(_ o: StopOutcome) -> (log: String, alert: String?) {
         switch o {
-        case .sent: nil
-        case .changed: refusal(.changed)
-        case .failed(let e): "The stop signal could not be sent (system error \(e))."
+        case .sent: ("sent", nil)
+        case .changed: ("not sent, the process changed", changed)
+        case .failed(let e): ("failed, errno \(e)", "The stop signal could not be sent (system error \(e)).")
         }
     }
 
@@ -77,13 +80,8 @@ package enum AlertText {
             : "The request is no longer waiting, so there was nothing to withdraw."
     }
 
+    /// `cancel` fails as not found, timed out or failed; the state is `Words.problem`'s.
     package static func cancelFailed(_ p: Problem) -> String {
-        switch p {
-        case .notFound: "coreslot was not found; nothing was withdrawn."
-        case .timedOut: "coreslot cancel did not answer in time; the request may still be waiting."
-        case .failed(let code) where code < 0: "coreslot cancel could not be run (system error \(-code)); nothing was withdrawn."
-        case .failed(let code): "coreslot cancel failed with exit status \(code); nothing was withdrawn."
-        case .stateUnreadable, .malformed: "coreslot cancel failed; nothing was withdrawn."
-        }
+        Words.problem(p, command: "cancel").state + (p == .timedOut ? "; the request may still be waiting." : "; nothing was withdrawn.")
     }
 }

@@ -71,8 +71,7 @@ let startSlackS: Int64 = 2
 package func prepareStop(
     holdName: String, using binary: CoreslotBinary, runner: Runner, inspector: any ProcessInspector
 ) async -> StopCheck {
-    let r = await runner.run(binary.url, ["status", "--json"], environment: nil, timeout: StatusSource.statusTimeout)
-    guard case .document(let doc, _) = interpret(r, binary: binary) else {
+    guard case .document(let doc, _) = await readStatus(binary, runner: runner) else {
         return .refused("status could not be read")
     }
     guard let hold = doc.holds.first(where: { $0.name == holdName }) else { return .gone }

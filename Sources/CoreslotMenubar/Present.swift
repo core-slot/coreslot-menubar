@@ -281,7 +281,7 @@ enum Present {
             Confirm.make(AlertText.stop(hold, pid: pid_t(hold.pid), facts: ProcessFacts(
                 executable: FixtureInspector.root, startSeconds: 0, arguments: args)))
         case "alert-cancel": Confirm.make(AlertText.cancel(ticket))
-        default: Confirm.make(AlertText.refusal(.refused(""))!)
+        default: Confirm.make(AlertText.refusal(.refused(""))!.alert)
         }
         // The modal loop runs inside this task, so the main queue waits; a timer of its mode does not.
         // The window on screen is not `alert.window` but one the system draws for it: this

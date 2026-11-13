@@ -36,6 +36,11 @@ package func interpret(_ r: RunResult, binary: CoreslotBinary) -> StatusReading 
     }
 }
 
+/// One `coreslot status --json`, stopped after 5 s, and what it says.
+package func readStatus(_ binary: CoreslotBinary, environment: [String: String]? = nil, runner: Runner) async -> StatusReading {
+    interpret(await runner.run(binary.url, ["status", "--json"], environment: environment, timeout: .seconds(5)), binary: binary)
+}
+
 private func notices(_ doc: StatusDocument) -> [Notice] {
     var n: [Notice] = []
     if let d = doc.degraded { n.append(.degraded(d.reason)) }
@@ -58,9 +63,6 @@ package struct Polled: Sendable, Equatable {
 /// consumer asks for the next, so its loop is the only one, and polling ends when it stops asking.
 /// Each poll looks for `coreslot` again, and reads its version again when the file found is another.
 package actor StatusSource {
-    /// How long one `status` may take before it is stopped.
-    static let statusTimeout: Duration = .seconds(5)
-
     /// 2 s while the popover or the window is visible, 10 s otherwise.
     package static func interval(visible: Bool) -> Duration { visible ? .seconds(2) : .seconds(10) }
 
@@ -108,8 +110,7 @@ package actor StatusSource {
     /// One reading: the `coreslot` found now, then its `status --json`.
     package func read() async -> Polled {
         guard let binary = await locate() else { return Polled(binary: nil, reading: .problem(.notFound)) }
-        let r = await runner.run(binary.url, ["status", "--json"], environment: environment, timeout: Self.statusTimeout)
-        return Polled(binary: binary, reading: interpret(r, binary: binary))
+        return Polled(binary: binary, reading: await readStatus(binary, environment: environment, runner: runner))
     }
 
     /// The `coreslot` found now, none when it cannot be read; its version is read again only for

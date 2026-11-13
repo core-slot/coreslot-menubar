@@ -108,9 +108,9 @@ extension Store {
             let fix = p == .notFound && chosenBinary != nil ? "The file chosen in Settings did not answer as coreslot: choose another there." : words.fix
             return PopoverModel(level: nil, tone: .unknown, notices: [], body: .unavailable(state: words.state, fix: fix))
         case .notices(let notices):
-            return PopoverModel(level: nil, tone: .unknown, notices: notices.map(Words.notice), body: .noticeOnly)
+            return PopoverModel(level: nil, tone: .unknown, notices: notices.map { Words.notice($0).header }, body: .noticeOnly)
         case .document(let doc, let notices):
-            return PopoverModel(level: Words.level(doc), tone: tone(doc.watch.level), notices: notices.map(Words.notice), body: .live(live(doc)))
+            return PopoverModel(level: Words.level(doc), tone: tone(doc.watch.level), notices: notices.map { Words.notice($0).header }, body: .live(live(doc)))
         }
     }
 

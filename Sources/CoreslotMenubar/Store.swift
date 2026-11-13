@@ -179,24 +179,19 @@ final class Store {
             // The pid and the start time of one read: the check that ended it, or the last before the signal.
             let who = { (r: (pid: pid_t?, started: Int64?)) in "pid \(r.pid.map(String.init) ?? String(hold.pid)), started \(r.started.map(String.init) ?? "unknown"), hold \(name)" }
             switch end {
-            case .notAsked(let c), .notSent(let c): tell(stop: c, who(c.read))
+            case .notAsked(let c), .notSent(let c):
+                guard let words = AlertText.refusal(c) else { return }
+                Log.actions.say("stop not sent, \(words.log): \(who(c.read))", failure: c != .gone && c != .changed)
+                Confirm.tell(words.alert)
             case .declined(let c): Log.actions.say("stop declined: \(who(c.read))")
             case .signalled(let outcome, let c):
-                let words = switch outcome { case .sent: "sent"; case .changed: "not sent, the process changed"; case .failed(let e): "failed, errno \(e)" }
+                let words = AlertText.stopOutcome(outcome)
                 let started = if case .changed(let s) = outcome { s } else { c.read.started }
-                Log.actions.say("stop \(words): SIGTERM to \(who((c.read.pid, started)))", failure: outcome != .sent)
-                if let words = AlertText.stopOutcome(outcome) { Confirm.tell(words) }
+                Log.actions.say("stop \(words.log): SIGTERM to \(who((c.read.pid, started)))", failure: outcome != .sent)
+                if let alert = words.alert { Confirm.tell(alert) }
                 await source?.readNow()
             }
         }
-    }
-
-    /// `who`: our facts, then the name.
-    private func tell(stop c: StopCheck, _ who: String) {
-        let why = switch c { case .gone: "the hold is gone"; case .changed: "the hold is no longer stoppable"; case .ready: ""
-                             case .differs: "the process differs from the one confirmed"; case .refused(let r, _, _): r }
-        Log.actions.say("stop not sent, \(why): \(who)", failure: c != .gone && c != .changed)
-        if let words = AlertText.refusal(c) { Confirm.tell(words) }
     }
 
     /// The one polling loop; a new choice in Settings cancels it from outside and starts another.

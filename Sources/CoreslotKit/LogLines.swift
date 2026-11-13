@@ -44,7 +44,7 @@ package struct LogTransitions: Sendable {
         case .problem: nil
         }
         guard let shown else { return change }
-        return change + Self.diff(&notices, shown.map(Self.text), "notice:", "notice cleared:", failure: false)
+        return change + Self.diff(&notices, shown.map { Words.notice($0).log }, "notice:", "notice cleared:", failure: false)
     }
 
     /// The `coreslot` found, a new one, or none where there was one.
@@ -65,15 +65,5 @@ package struct LogTransitions: Sendable {
         defer { old = new }
         return new.filter { !old.contains($0) }.map { LogLine(text: "\(added) \($0)", failure: failure) }
             + old.filter { !new.contains($0) }.map { LogLine(text: "\(dropped) \($0)", failure: false) }
-    }
-
-    static func text(_ n: Notice) -> String {
-        switch n {
-        case .tooOld: "coreslot older than \(Version.minimum)"
-        case .degraded(let reason): "degraded: " + SafeText.display(reason)
-        case .formatNotUnderstood(let e): "format not understood: " + SafeText.display(e)
-        case .configError(let e): "config error: " + SafeText.display(e)
-        case .schema(let s): "schema \(s)"
-        }
     }
 }
