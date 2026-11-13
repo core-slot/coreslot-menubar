@@ -29,6 +29,8 @@ package struct Runs: Sendable {
         /// The `ended` line's copy of the run-log line: the exit status and the peak.
         package var record: RunLogLine?
         var waitingN: Int64 = 0
+        /// When its latest line was written.
+        var lastNS: Int64 = 0
     }
 
     /// A `waiting` line with no `ahead`: the reason the head of the queue gave at that moment.
@@ -58,7 +60,8 @@ package struct Runs: Sendable {
     private(set) var byTicket: [String: Key] = [:]
     private var byHold: [String: Key] = [:]
     /// A pass-through runs inside its parent's grant and has no run-log line: no attempt of its own.
-    private var passThroughs: Set<Key> = []
+    /// By when its first line was written.
+    private(set) var passThroughs: [Key: Int64] = [:]
     /// In time order.
     package private(set) var heads: [Head] = []
 
@@ -66,12 +69,12 @@ package struct Runs: Sendable {
 
     package mutating func apply(_ e: EventLine) {
         let key = Key(run: e.run, attempt: e.attempt)
-        if passThroughs.contains(key) || e.kind == .outside(passThrough: true) {
-            if case .ended = e.kind { passThroughs.remove(key) } else { passThroughs.insert(key) }
+        if passThroughs[key] != nil || e.kind == .outside(passThrough: true) {
+            if case .ended = e.kind { passThroughs[key] = nil } else { passThroughs[key] = passThroughs[key] ?? e.timeNS }
             return
         }
         var a = attempts[key] ?? Attempt(key: key, label: e.label)
-        a.label = e.label
+        (a.label, a.lastNS) = (e.label, max(a.lastNS, e.timeNS))
         switch e.kind {
         case .enqueue(let q):
             (a.ticket, a.typicalS, a.realMemory, a.needMiB) = (q.ticket, q.typicalS, q.realMemory, q.needMiB)
@@ -99,12 +102,18 @@ package struct Runs: Sendable {
         attempts[key] = a
     }
 
-    /// Drops the attempts that ended before `date`, and their tickets; live and waiting ones stay.
-    package mutating func prune(endedBefore date: Date) {
-        attempts = attempts.filter { $0.value.end.map { $0.timeNS >= date.nanosecondsSince1970 } ?? true }
+    /// Drops the attempts that ended before `date`, and their tickets; one with no end, killed or
+    /// lost (https://github.com/core-slot/coreslot/blob/v0.8.0/docs/telemetry.md), once its last
+    /// line is older and `live`, if read, lists neither its ticket nor its hold; and pass-throughs
+    /// older, which never write `ended` when killed with their parent's group.
+    package mutating func prune(endedBefore date: Date, live: StatusDocument?) {
+        let cut = date.nanosecondsSince1970
+        let listed = live.map { d in Set(d.holds.compactMap { byHold[$0.name] } + d.tickets.compactMap { $0.name.flatMap { byTicket[$0] } }) }
+        attempts = attempts.filter { _, a in a.end.map { $0.timeNS >= cut } ?? (a.lastNS >= cut || listed?.contains(a.key) ?? true) }
+        passThroughs = passThroughs.filter { $0.value >= cut }
         byTicket = byTicket.filter { attempts[$0.value] != nil }
         byHold = byHold.filter { attempts[$0.value] != nil }
-        heads.removeAll { $0.timeNS < date.nanosecondsSince1970 - Self.headLineNS }
+        heads.removeAll { $0.timeNS < cut - Self.headLineNS }
     }
 
     /// What the head of the queue gave as its reason, from `fromNS` to `toNS`: each head's line

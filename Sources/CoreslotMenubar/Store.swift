@@ -44,8 +44,7 @@ final class Store {
     private(set) var record = RecordSnapshot()
     private(set) var recordState: RecordState = .unknown
     private(set) var report: Report?
-    /// Each label's colour, by order of first sight; a new label never repaints the others.
-    private(set) var labelColors: [String: Int] = [:]
+    private(set) var labelColors = LabelColors()
     /// Holds whose process the app could not read: no stop button, and the quiet line says so.
     /// Only the popover shows it, so it is read only while the popover is visible.
     private(set) var unchecked: Set<String> = []
@@ -239,7 +238,7 @@ final class Store {
         record = snapshot
         transitions.read(errors: snapshot.errors).forEach(Log.telemetry.say)
         let labels = (doc?.holds.map(\.label) ?? []) + (doc?.tickets.map(\.label) ?? []) + snapshot.runs.attempts.values.map(\.label)
-        for label in labels where labelColors[label] == nil { labelColors[label] = labelColors.count }
+        labelColors.see(labels, at: at)
         recordState = feed.record ?? RecordState(now: at, lastSample: lastSample, holdLiveSince: holdLiveSince)
         #if DEBUG
         let summary = doc.map { "holds \($0.holds.count) tickets \($0.tickets.count) attempts \(snapshot.runs.attempts.count)" } ?? "no document"
@@ -331,7 +330,7 @@ actor RecordReader {
             if let r = RunLogLine(line: line), r.timeNS >= cutNS { snapshot.finished.append(r) }
         }
         snapshot.finished.removeAll { $0.timeNS < cutNS }
-        snapshot.runs.prune(endedBefore: cut)
+        snapshot.runs.prune(endedBefore: cut, live: doc)
         if let doc {
             snapshot.tracks.add(doc, at: at)
             snapshot.tracks.keep(only: Set(doc.holds.map(\.name)))

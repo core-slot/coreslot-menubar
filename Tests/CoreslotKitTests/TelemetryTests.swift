@@ -296,13 +296,13 @@ extension JSONLTail {
     }
 
     // Mutation: keep the ticket index whole (drop its filter); "t1" still names a key, red.
-    // Mutation: drop an attempt with no end too (`?? false`); the waiting attempt goes, red.
+    // Mutation: drop every attempt with no end (`?? false`); the waiting attempt goes, red.
     @Test func pruneDropsOnlyWhatEndedBeforeTheDate() {
         var runs = Runs()
         for (run, ticket) in [("old", "t1"), ("late", "t2"), ("live", "t3")] { runs.apply(line(run, 1, 1, enqueue(ticket))) }
         runs.apply(line("old", 1, 5, .waitEnded("cancelled")))
         runs.apply(line("late", 1, 20, .waitEnded("refused")))
-        runs.prune(endedBefore: Date(timeIntervalSince1970: 10))
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 10), live: nil)
         #expect(runs.byTicket["t1"] == nil && runs.attempts.count == 2)
         #expect(runs.waiting(ticketName: "t2")?.end?.event == "refused" && runs.waiting(ticketName: "t3")?.end == nil)
     }
@@ -315,8 +315,26 @@ extension JSONLTail {
         runs.apply(line("a", 1, 1, enqueue("t1")))
         runs.apply(line("a", 1, 10, .waiting(.init(reason: "room_short"))))
         runs.apply(line("a", 1, 90, .waiting(.init(reason: "room_short"))))
-        runs.prune(endedBefore: Date(timeIntervalSince1970: 100))
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 100), live: nil)
         #expect(runs.heads.map(\.timeNS) == [90_000_000_000])
+    }
+
+    // Mutation: keep every attempt with no end (`?? true`); the lost one stays, red. Mutation: drop
+    // the `listed` check; the run `status` lists goes, red. Mutation: judge by the first line
+    // (`a.arrivalNS ?? 0` for `a.lastNS`); the wait with a recent line goes, red. Mutation: with no
+    // document drop them too (`?? false`); red.
+    @Test func pruneDropsAnAttemptWithNoEndOnceItIsLost() throws {
+        var runs = Runs()
+        for (run, ticket) in [("lost", "t1"), ("long", "t2"), ("waits", "t3")] { runs.apply(line(run, 1, 1, enqueue(ticket))) }
+        runs.apply(line("long", 1, 2, .admitted("h2")))
+        runs.apply(line("waits", 1, 20, .waiting(.init(reason: "room_short"))))
+        let doc = try StatusDocument.decode(Fixture.data("status-queue.json") { d in
+            (d["holds"], d["tickets"]) = ([(d["holds"] as! [[String: Any]])[0].merging(["name": "h2"]) { $1 }], [])
+        })
+        var unread = runs
+        unread.prune(endedBefore: Date(timeIntervalSince1970: 10), live: nil)
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 10), live: doc)
+        #expect(Set(runs.attempts.keys.map(\.run)) == ["long", "waits"] && runs.byTicket["t1"] == nil && unread.attempts.count == 3)
     }
 
     // Mutation: take a line with `ahead` as the head's; the head's stretch is cut at 20 s, red.
@@ -369,16 +387,18 @@ extension JSONLTail {
     }
 
     // Mutation: decode the kind from another key; the pass-through is an attempt with no start, red.
-    // Mutation: drop `passThroughs.contains(key)`; its `ended` line makes it an attempt, red.
-    // Mutation: drop `passThroughs.remove(key)`; a later attempt line of that key is dropped too, red.
+    // Mutation: drop `passThroughs[key] != nil`; its `ended` line makes it an attempt, red.
+    // Mutation: drop `passThroughs[key] = nil` on `ended`; a later attempt line of that key is dropped too, red.
+    // Mutation: leave the pass-throughs out of `prune`; "killed", which never ended, stays, red.
     @Test func aPassThroughHasNoAttemptOfItsOwn() throws {
         var runs = Runs()
-        runs.apply(try event("outside", 1, #","kind":"pass_through","reason":"parent_hold","need_mib":4096,"parent":"h0""#, run: "child"))
+        for run in ["killed", "child"] { runs.apply(try event("outside", 1, #","kind":"pass_through","reason":"parent_hold","need_mib":4096,"parent":"h0""#, run: run)) }
         #expect(runs.attempts.isEmpty)
         runs.apply(try event("ended", 2, #","record":{"time_ns":1000000000,"label":"demo:child","waited_s":0,"ran_s":1.011,"mem_peak_kib":1008,"exit":0,"fail_open":""}"#, run: "child"))
         #expect(runs.attempts.isEmpty)
         runs.apply(try event("admitted", 3, #","hold":"h2""#, run: "child"))
-        #expect(runs.attempts.count == 1)
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 2), live: nil)
+        #expect(runs.attempts.count == 1 && runs.passThroughs.isEmpty)
     }
 
     // Mutation: record the ticket from the waiting line instead of `enqueue`; nothing is found, red.

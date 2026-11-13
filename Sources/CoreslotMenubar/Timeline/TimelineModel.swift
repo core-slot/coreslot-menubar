@@ -115,7 +115,7 @@ extension Store {
             memory: empty == nil ? .init(chart: chart, largest: largestProcesses(5)) : nil,
             strip: empty == nil ? strip(all, fromNS: start, toNS: min(endNS, nowNS)) : nil, empty: empty,
             rows: shown,
-            labels: labelColors.sorted { $0.value < $1.value }.map(\.key))
+            labels: labelColors.labels)
     }
 
     /// A label's colour, by the order the app first saw it.

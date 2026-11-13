@@ -276,3 +276,18 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         }
     }
 }
+
+@Suite struct LabelColorsTests {
+    // Mutation: number a new label by the count (`colors.count`); "c" takes "b"'s colour, red.
+    // Mutation: never forget (drop the filter); "a" stays, red. Mutation: forget by first sight (set
+    // `seen` only for a new label); "b", seen 1 s before, goes, red.
+    @Test func aLabelUnseenFor24HoursIsForgottenAndNoColourIsGivenTwice() {
+        var c = LabelColors()
+        let t0 = Date(timeIntervalSince1970: 0), day = LabelColors.forgetS
+        c.see(["a", "b"], at: t0)
+        c.see(["b"], at: t0.addingTimeInterval(day - 1))
+        c.see([], at: t0.addingTimeInterval(day))
+        c.see(["c"], at: t0.addingTimeInterval(day))
+        #expect(c["a"] == nil && c["b"] == 1 && c["c"] == 2 && c.labels == ["b", "c"])
+    }
+}
