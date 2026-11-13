@@ -7,8 +7,8 @@ enum Surface: Hashable { case popover, timeline }
 
 /// Where readings come from: the `coreslot` found on this machine, or, in a debug build, a fixture.
 struct Feed: Sendable {
-    /// The `coreslot` to use: the one chosen in Settings, when given, alone; else the one found.
-    let locate: @Sendable (_ chosen: URL?) async -> CoreslotBinary?
+    /// Where the `coreslot` to use is now: the one chosen in Settings, when given, alone; else the one found.
+    let find: @Sendable (_ chosen: URL?) -> URL?
     let runner: Runner
     #if DEBUG
     /// Fixtures only: the record read here instead of at the document's `state_dir`, the
@@ -27,12 +27,9 @@ struct Feed: Sendable {
     var keepsChoices = false
 
     static let live = Feed(
-        locate: { chosen in
-            let path = ProcessInfo.processInfo.environment["PATH"]
-            let found = chosen.map { Locate.find(override: $0, directories: [], path: nil) }
-                ?? Locate.find(override: nil, directories: Locate.standardDirectories, path: path)
-            guard let url = found else { return nil }
-            return await CoreslotBinary.probe(url, environment: nil)
+        find: { chosen in
+            chosen.map { Locate.find(override: $0, directories: [], path: nil) }
+                ?? Locate.find(override: nil, directories: Locate.standardDirectories, path: ProcessInfo.processInfo.environment["PATH"])
         },
         runner: .process, keepsChoices: true)
 }
@@ -72,8 +69,6 @@ final class Store {
     @ObservationIgnored private var acting = false
     /// Counts the restarts a new choice in Settings makes; what an older loop brings is dropped.
     @ObservationIgnored private var generation = 0
-    /// The wait before looking for `coreslot` again; showing a surface cuts it short.
-    @ObservationIgnored private var nap: Task<Void, Never>?
     @ObservationIgnored private var transitions = LogTransitions()
 
     private static let binaryKey = "coreslot", stateDirKey = "stateDirectory"
@@ -139,11 +134,11 @@ final class Store {
         #if DEBUG
         Present.log("visible \(surface) \(on)")
         #endif
-        let fast = !visible.isEmpty
+        let interval = StatusSource.interval(visible: !visible.isEmpty)
         if on { refreshReport() }
-        guard let source else { if on { nap?.cancel() }; return }
+        guard let source else { return }
         Task {
-            await source.setInterval(fast ? .seconds(2) : .seconds(10))
+            await source.setInterval(interval)
             if on { await source.readNow() }
         }
     }
@@ -204,40 +199,32 @@ final class Store {
         if let words = AlertText.refusal(c) { Confirm.tell(words) }
     }
 
+    /// The one polling loop; a new choice in Settings cancels it from outside and starts another.
     private func run(_ generation: Int) async {
-        while binary == nil && !Task.isCancelled {
-            let found = await feed.locate(chosenBinary)
-            guard generation == self.generation else { return }
-            transitions.located(found).map(Log.status.say)
-            if let b = found {
-                binary = b
-            } else {
-                await ingest(.problem(.notFound))
-                let nap = Task { [visible] in _ = try? await Task.sleep(for: visible.isEmpty ? .seconds(10) : .seconds(2)) }
-                self.nap = nap
-                await nap.value
-            }
-        }
-        guard let binary, generation == self.generation else { return }
-        let source = StatusSource(binary: binary, environment: nil, runner: runner)
+        let source = newSource()
         self.source = source
-        await source.setInterval(visible.isEmpty ? .seconds(10) : .seconds(2))
-        refreshReport()
-        for await r in await source.readings() where generation == self.generation {
-            await ingest(r)
-            // The file is gone from where it was found: look for it again, wherever it is now.
-            if r == .problem(.notFound) { return restart() }
-        }
+        await source.setInterval(StatusSource.interval(visible: !visible.isEmpty))
+        for await polled in source.readings() where generation == self.generation { await take(polled) }
+    }
+
+    private func newSource() -> StatusSource {
+        let (find, chosen) = (feed.find, chosenBinary)
+        return StatusSource(find: { find(chosen) }, environment: nil, runner: runner)
+    }
+
+    /// The `coreslot` a reading came from, then the reading.
+    private func take(_ p: Polled) async {
+        transitions.located(p.binary).map(Log.status.say)
+        let appeared = binary == nil && p.binary != nil
+        binary = p.binary
+        if appeared { refreshReport() }
+        await ingest(p.reading)
     }
 
     #if DEBUG
     /// One reading, the record and the report, outside the poller: a fixture shown once.
     func readOnce() async {
-        guard let b = await feed.locate(chosenBinary) else { return await ingest(.problem(.notFound)) }
-        binary = b
-        let r = await runner.run(b.url, ["status", "--json"], environment: nil, timeout: .seconds(5))
-        await ingest(interpret(r, binary: b))
-        refreshReport()
+        await take(await newSource().read())
         await reportTask?.value
     }
     #endif

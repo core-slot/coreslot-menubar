@@ -48,37 +48,39 @@ private extension UInt8 {
     var isWhitespace: Bool { self == 0x20 || self == 0x0a || self == 0x0d || self == 0x09 }
 }
 
-/// Polls `coreslot status --json` and hands every reading to one stream. One run at a time.
+/// One reading and the `coreslot` it came from; no `coreslot` when none was found.
+public struct Polled: Sendable, Equatable {
+    public let binary: CoreslotBinary?
+    public let reading: StatusReading
+}
+
+/// Polls `coreslot status --json` for one consumer, one run at a time. A reading is taken when the
+/// consumer asks for the next, so its loop is the only one, and polling ends when it stops asking.
+/// Each poll looks for `coreslot` again, and reads its version again when the file found is another.
 public actor StatusSource {
     /// How long one `status` may take before it is stopped.
     static let statusTimeout: Duration = .seconds(5)
 
-    private let binary: CoreslotBinary
+    /// 2 s while the popover or the window is visible, 10 s otherwise.
+    public static func interval(visible: Bool) -> Duration { visible ? .seconds(2) : .seconds(10) }
+
+    private let find: @Sendable () -> URL?
     private let environment: [String: String]?
     private let runner: Runner
-    private let stream: AsyncStream<StatusReading>
-    private let output: AsyncStream<StatusReading>.Continuation
-    private var interval: Duration = .seconds(10)
-    private var loop: Task<Void, Never>?
+    private var known: (url: URL, id: FileID?, binary: CoreslotBinary)?
+    private var interval = interval(visible: false)
+    private var started: ContinuousClock.Instant?
     private var sleeper: Task<Void, Never>?
     private var wanted = false
-    private var consumed = true
 
-    public init(binary: CoreslotBinary, environment: [String: String]?, runner: Runner = .process) {
-        (self.binary, self.environment, self.runner) = (binary, environment, runner)
-        (stream, output) = AsyncStream.makeStream(of: StatusReading.self, bufferingPolicy: .bufferingNewest(1))
+    /// `find`: where `coreslot` is now, nil when nowhere.
+    public init(find: @escaping @Sendable () -> URL?, environment: [String: String]?, runner: Runner = .process) {
+        (self.find, self.environment, self.runner) = (find, environment, runner)
     }
 
-    /// The one stream of readings, from the first call on; polling runs while it is consumed.
-    public func readings() -> AsyncStream<StatusReading> {
-        if loop == nil {
-            output.onTermination = { _ in Task { await self.ended() } }
-            loop = Task { await self.poll() }
-        }
-        return stream
-    }
+    /// The readings, each taken when it is asked for; the first at once.
+    public nonisolated func readings() -> AsyncStream<Polled> { AsyncStream(unfolding: { await self.next() }) }
 
-    /// 2 s while the popover or the window is visible, 10 s otherwise.
     public func setInterval(_ d: Duration) {
         interval = d
         sleeper?.cancel()
@@ -90,25 +92,32 @@ public actor StatusSource {
         sleeper?.cancel()
     }
 
-    private func ended() {
-        consumed = false
-        sleeper?.cancel()
+    /// The next reading, an interval after the last one started; nil once the consumer is cancelled.
+    private func next() async -> Polled? {
+        while let s = started, !wanted, !Task.isCancelled, ContinuousClock.now < s + interval {
+            let nap = Task { [due = s + interval] in _ = try? await Task.sleep(until: due) }
+            sleeper = nap
+            await withTaskCancellationHandler { await nap.value } onCancel: { nap.cancel() }
+            sleeper = nil
+        }
+        if Task.isCancelled { return nil }
+        (started, wanted) = (ContinuousClock.now, false)
+        return await read()
     }
 
-    /// The one loop: it ends only between runs, once the stream is no longer consumed.
-    private func poll() async {
-        while consumed {
-            let started = ContinuousClock.now
-            wanted = false
-            let r = await runner.run(binary.url, ["status", "--json"], environment: environment, timeout: Self.statusTimeout)
-            output.yield(interpret(r, binary: binary))
-            while !wanted && consumed && ContinuousClock.now < started + interval {
-                let due = started + interval
-                let s = Task { _ = try? await Task.sleep(until: due) }
-                sleeper = s
-                await s.value
-                sleeper = nil
-            }
-        }
+    /// One reading: the `coreslot` found now, then its `status --json`.
+    public func read() async -> Polled {
+        guard let binary = await locate() else { return Polled(binary: nil, reading: .problem(.notFound)) }
+        let r = await runner.run(binary.url, ["status", "--json"], environment: environment, timeout: Self.statusTimeout)
+        return Polled(binary: binary, reading: interpret(r, binary: binary))
+    }
+
+    /// The `coreslot` found now; its version is read again only for another path or another file there.
+    private func locate() async -> CoreslotBinary? {
+        guard let url = find() else { known = nil; return nil }
+        let id = FileID(url)
+        if let k = known, k.url == url, k.id == id { return k.binary }
+        known = await CoreslotBinary.probe(url, environment: environment, runner: runner).map { (url, id, $0) }
+        return known?.binary
     }
 }

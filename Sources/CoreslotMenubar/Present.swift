@@ -313,12 +313,12 @@ enum Present {
         let then = newest(status: original, telemetry: telemetry)
         if v.night { telemetry = night(before: then) }
         let launched = Date()
-        let binary = CoreslotBinary(url: URL(filePath: "/fixture/coreslot"), version: v.version)
         let found = v.name != "not-found"
         let runner = Runner { _, args, _, _ -> RunResult in
             switch args.first {
             case "status": return status
             case "report": return report
+            case "version": return RunResult(exitCode: 0, stdout: Data("coreslot \(v.version.isDevelopment ? "0.0.0" : "\(v.version)") (protocol formats: 2)".utf8))
             default: return RunResult(exitCode: 64)
             }
         }
@@ -329,9 +329,8 @@ enum Present {
         } else {
             clock = { then }
         }
-        let locate: @Sendable (URL?) async -> CoreslotBinary? = { _ in found ? binary : nil }
         return Feed(
-            locate: locate, runner: runner, stateDir: telemetry, clock: clock, record: v.record,
+            find: { _ in found ? URL(filePath: "/fixture/coreslot") : nil }, runner: runner, stateDir: telemetry, clock: clock, record: v.record,
             inspector: FixtureInspector(readable: v.readable), signal: { _, _ in EPERM })
     }
 

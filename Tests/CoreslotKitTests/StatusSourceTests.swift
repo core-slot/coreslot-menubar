@@ -96,11 +96,13 @@ private let release = CoreslotBinary(url: URL(filePath: "/opt/coreslot"), versio
     }
 }
 
-/// A Runner that answers from a list (the last answer repeats) and counts the runs it is in.
+/// A Runner that answers `status` from a list (the last answer repeats) and counts the runs it is
+/// in; `version` answers with `version`'s line, counted apart.
 private final class Scripted: Sendable {
     private let answers: Mutex<[RunResult]>
     private let delay: Duration
     let stats = Mutex((running: 0, most: 0, runs: 0))
+    let version = Mutex((line: "coreslot 0.8.0 (protocol formats: 2)", runs: 0))
 
     init(_ answers: [RunResult], delay: Duration = .zero) {
         self.answers = Mutex(answers)
@@ -109,6 +111,9 @@ private final class Scripted: Sendable {
 
     var runner: Runner {
         Runner { _, args, _, _ in
+            if args == ["version"] {
+                return RunResult(exitCode: 0, stdout: Data(self.version.withLock { $0.runs += 1; return $0.line }.utf8))
+            }
             #expect(args == ["status", "--json"])
             self.stats.withLock { $0.running += 1; $0.most = max($0.most, $0.running); $0.runs += 1 }
             try? await Task.sleep(for: self.delay)
@@ -116,26 +121,28 @@ private final class Scripted: Sendable {
             return self.answers.withLock { $0.count > 1 ? $0.removeFirst() : $0[0] }
         }
     }
+
+    func source(find: @escaping @Sendable () -> URL? = { release.url }) -> StatusSource {
+        StatusSource(find: find, environment: nil, runner: runner)
+    }
 }
 
-private func first(_ n: Int, of stream: AsyncStream<StatusReading>, within limit: Duration) async -> [StatusReading] {
-    await withTaskGroup(of: [StatusReading]?.self) { group in
-        group.addTask {
-            var got: [StatusReading] = []
-            for await r in stream {
-                got.append(r)
-                if got.count == n { break }
-            }
-            return got
-        }
-        group.addTask {
-            try? await Task.sleep(for: limit)
-            return nil
-        }
-        let winner = await group.next() ?? nil
-        group.cancelAll()
-        return winner ?? []
+/// The readings of a stream, collected as they come by a consumer task that is cancelled at the end.
+private final class Collected: Sendable {
+    let got = Mutex<[StatusReading]>([])
+
+    func consume(_ stream: AsyncStream<Polled>) -> Task<Void, Never> {
+        Task { for await p in stream { self.got.withLock { $0.append(p.reading) } } }
     }
+
+    func waitFor(_ n: Int, within limit: Duration = .seconds(5)) async throws {
+        try await waitUntil(limit) { got.withLock { $0.count } >= n }
+    }
+}
+
+private func waitUntil(_ limit: Duration = .seconds(5), _ done: () -> Bool) async throws {
+    let end = ContinuousClock.now + limit
+    while !done() && ContinuousClock.now < end { try await Task.sleep(for: .milliseconds(10)) }
 }
 
 @Suite struct StatusSourceTests {
@@ -143,34 +150,87 @@ private func first(_ n: Int, of stream: AsyncStream<StatusReading>, within limit
     @Test func aGoodReadingFollowsAFailedOne() async throws {
         let data = try Fixture.data("status-idle.json")
         let fake = Scripted([RunResult(exitCode: 70), RunResult(exitCode: 0, stdout: data)])
-        let source = StatusSource(binary: release, environment: nil, runner: fake.runner)
+        let source = fake.source()
         await source.setInterval(.milliseconds(100))
-        let got = await first(2, of: await source.readings(), within: .seconds(5))
-        #expect(got == [.problem(.failed(exitCode: 70)), .document(try StatusDocument.decode(data), [])])
+        let got = Collected(), consumer = got.consume(source.readings())
+        defer { consumer.cancel() }
+        try await got.waitFor(2)
+        #expect(got.got.withLock { Array($0.prefix(2)) } == [.problem(.failed(exitCode: 70)), .document(try StatusDocument.decode(data), [])])
     }
 
     // Mutation: readNow starts a run of its own instead of waking the loop; two run at once, red.
     @Test func readNowNeverOverlapsARunInFlight() async throws {
         let data = try Fixture.data("status-idle.json")
         let fake = Scripted([RunResult(exitCode: 0, stdout: data)], delay: .milliseconds(300))
-        let source = StatusSource(binary: release, environment: nil, runner: fake.runner)
-        let stream = await source.readings()
-        while fake.stats.withLock({ $0.runs }) == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        let source = fake.source()
+        let got = Collected(), consumer = got.consume(source.readings())
+        defer { consumer.cancel() }
+        try await waitUntil { fake.stats.withLock { $0.runs } == 1 }
         for _ in 0..<5 { await source.readNow() }
-        let got = await first(2, of: stream, within: .seconds(5))
-        #expect(got.count == 2)
+        try await got.waitFor(2)
+        consumer.cancel()
         let stats = fake.stats.withLock { $0 }
-        #expect(stats.most == 1 && stats.runs == 2, "\(stats)")
+        #expect(got.got.withLock { $0.count } == 2 && stats.most == 1 && stats.runs == 2, "\(stats)")
     }
 
     // Mutation: setInterval does not wake the sleeping loop; the next reading waits 10 s, red.
     @Test func aShorterIntervalTakesEffectAtOnce() async throws {
         let data = try Fixture.data("status-idle.json")
         let fake = Scripted([RunResult(exitCode: 0, stdout: data)])
-        let source = StatusSource(binary: release, environment: nil, runner: fake.runner)
-        let stream = await source.readings()
-        while fake.stats.withLock({ $0.runs }) == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        let source = fake.source()
+        let got = Collected(), consumer = got.consume(source.readings())
+        defer { consumer.cancel() }
+        try await got.waitFor(1)
         await source.setInterval(.milliseconds(50))
-        #expect(await first(2, of: stream, within: .seconds(2)).count == 2)
+        try await got.waitFor(2, within: .seconds(2))
+        #expect(got.got.withLock { $0.count } >= 2)
+    }
+
+    // The R1 case: the consumer of PR 5's store, which returns from its loop when coreslot is not
+    // found and asks again, then leaves for good. Mutation: poll from a task of the source's own
+    // that feeds the stream, as before (a loop that outlives its consumer); the loops left behind
+    // go on looking for coreslot after the consumer is gone, red.
+    @Test func oneLoopPollsAndItEndsWithItsConsumer() async throws {
+        let data = try Fixture.data("status-idle.json")
+        let fake = Scripted([RunResult(exitCode: 0, stdout: data)])
+        let looks = Mutex(0)
+        let source = fake.source { looks.withLock { $0 += 1; return $0 == 1 ? nil : release.url } }
+        await source.setInterval(.milliseconds(50))
+        let start = ContinuousClock.now
+        let consumer = Task {
+            for await p in source.readings() where p.reading == .problem(.notFound) { break }
+            var n = 0
+            for await p in source.readings() {
+                if p.binary == nil { Issue.record("not found again") }
+                n += 1
+                if n == 20 { break }
+            }
+        }
+        await consumer.value
+        let (took, looked) = (ContinuousClock.now - start, looks.withLock { $0 })
+        // One loop at 50 ms: 21 looks take a second at least.
+        #expect(looked == 21 && took >= .milliseconds(950), "\(looked) looks in \(took)")
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(looks.withLock { $0 } == looked, "polling went on without a consumer")
+    }
+
+    // Mutation: keep the version by path alone (drop `k.id == id`); the coreslot replaced at the same
+    // path keeps 0.8.0, red. Mutation: read the version on every poll (no `known`); `version` runs
+    // once per poll, red.
+    @Test func theVersionIsReadAgainOnlyWhenTheFileChanges() async throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let exe = dir.appending(path: "coreslot"), next = dir.appending(path: "coreslot.new")
+        try Data("#!/bin/sh\n".utf8).write(to: exe)
+        let fake = Scripted([RunResult(exitCode: 0, stdout: try Fixture.data("status-idle.json"))])
+        let source = fake.source { exe }
+        for _ in 0..<3 { #expect(await source.read().binary?.version == Version(0, 8, 0)) }
+        #expect(fake.version.withLock { $0.runs } == 1)
+        try Data("#!/bin/sh\n# 0.8.1\n".utf8).write(to: next)
+        _ = try FileManager.default.replaceItemAt(exe, withItemAt: next)
+        fake.version.withLock { $0.line = "coreslot 0.8.1 (protocol formats: 2)" }
+        #expect(await source.read().binary?.version == Version(0, 8, 1))
+        #expect(await source.read().binary?.version == Version(0, 8, 1))
+        #expect(fake.version.withLock { $0.runs } == 2)
     }
 }
