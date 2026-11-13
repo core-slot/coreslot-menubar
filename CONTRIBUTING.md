@@ -50,9 +50,3 @@ holds another label, your user name or your home directory. Read the diff before
 
 `status-0.7.0.json` is not from the script: it is a 0.8.0 fixture with the keys 0.8.0 added
 removed by hand, so the tests cover an older coreslot.
-
-## Looking at the UI
-
-A debug build of the app takes `--present FIXTURE [--appearance light|dark]`: it opens the
-popover's content and the timeline in ordinary windows over the named fixture and prints each
-window's number, so they can be captured with `screencapture -l`. Release builds do not have it.
