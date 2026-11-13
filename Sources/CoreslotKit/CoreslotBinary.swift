@@ -32,11 +32,12 @@ public struct Version: Comparable, Sendable, CustomStringConvertible {
     }
 
     /// Parses the line `coreslot version` prints, `coreslot <v> (protocol formats: <list>)`, the list
-    /// integers separated by commas (one, today); nil for any other.
+    /// digits, commas and spaces with a digit at least, as coreslot's own test pins it (the app never
+    /// reads it); nil for any other.
     public static func parse(versionLine line: String) -> Version? {
         let w = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ", maxSplits: 4, omittingEmptySubsequences: false)
         guard w.count == 5, w[0] == "coreslot", w[2] == "(protocol", w[3] == "formats:", w[4].hasSuffix(")"),
-              w[4].dropLast().split(separator: ",", omittingEmptySubsequences: false).allSatisfy({ Int($0.trimmingCharacters(in: .whitespaces)) != nil })
+              case let list = w[4].dropLast(), list.allSatisfy({ ", 0123456789".contains($0) }), list.contains(where: \.isWholeNumber)
         else { return nil }
         return Version(String(w[1]))
     }
