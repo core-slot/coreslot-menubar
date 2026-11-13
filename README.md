@@ -41,6 +41,32 @@ brew install --cask core-slot/tap/coreslot-menubar
 The cask does not install coreslot, so an existing coreslot (for example in `~/.local/bin`) is the
 one the app uses. To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Diagnostics
+
+The app keeps its own log in the macOS unified log, which the system bounds and keeps; it writes
+no file of its own. When the app showed or did something unexpected, read the last day with:
+
+```sh
+log show --predicate 'subsystem == "io.github.core-slot.menubar"' --last 1d --style compact
+```
+
+It logs changes, never every poll, in four categories:
+
+- `status`: the coreslot found, a new one or none, with its path and version; each change in what
+  `coreslot status --json` gave (a document, notices only, or a problem with its exit code); and
+  each notice as it appears and clears (degraded and its reason, format not understood, config
+  error, an older coreslot, another schema).
+- `actions`: each cancel and stop asked, declined or sent, with the ticket or the hold, its pid and
+  start time, each refusal and its reason, the signal sent and the result or errno.
+- `telemetry`: an error reading the telemetry or the run log, once while it lasts and once when it
+  ends.
+- `settings`: the coreslot and the state directory chosen, and launch at login asked, with the
+  status the system then reports.
+
+Failures are logged as errors, everything else as notices. A process's arguments are never logged;
+text from the state directory, such as names and reasons, is logged with its control and invisible
+characters escaped. For coreslot's own side, run `coreslot doctor`.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

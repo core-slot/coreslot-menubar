@@ -74,6 +74,7 @@ final class Store {
     @ObservationIgnored private var generation = 0
     /// The wait before looking for `coreslot` again; showing a surface cuts it short.
     @ObservationIgnored private var nap: Task<Void, Never>?
+    @ObservationIgnored private var transitions = LogTransitions()
 
     private static let binaryKey = "coreslot", stateDirKey = "stateDirectory"
 
@@ -96,6 +97,7 @@ final class Store {
     func choose(binary url: URL?) {
         chosenBinary = url
         defaults?.set(url, forKey: Self.binaryKey)
+        Log.settings.say("coreslot chosen: \(url?.path ?? "the one found")")
         restart()
     }
 
@@ -103,6 +105,7 @@ final class Store {
     func choose(stateDir url: URL?) {
         chosenStateDir = url
         defaults?.set(url, forKey: Self.stateDirKey)
+        Log.settings.say("state directory chosen: \(url?.path ?? "coreslot's own")")
         restart()
     }
 
@@ -148,15 +151,22 @@ final class Store {
     func askToCancel(_ ticket: StatusDocument.Ticket) {
         guard let binary, !acting else { return }
         acting = true
+        let id = SafeText.display(ticket.id)
+        Log.actions.say("cancel asked: ticket \(id)")
         Task {
             defer { acting = false }
-            guard Confirm.ask(AlertText.cancel(ticket)) else { return }
+            guard Confirm.ask(AlertText.cancel(ticket)) else { return Log.actions.say("cancel \(id): declined") }
             switch await cancel(ticketID: ticket.id, using: binary, runner: runner) {
-            case .requested: cancelRequested.insert(ticket.id)
+            case .requested:
+                Log.actions.say("cancel \(id): requested")
+                cancelRequested.insert(ticket.id)
             case .refused(let now):
+                Log.actions.say("cancel \(id): refused, exit 75; status now \(LogTransitions.kind(now))")
                 await ingest(now)
                 Confirm.tell(AlertText.cancelRefused(ticketID: ticket.id, now: now))
-            case .failed(let problem): Confirm.tell(AlertText.cancelFailed(problem))
+            case .failed(let problem):
+                Log.actions.say("cancel \(id): failed, \(LogTransitions.kind(.problem(problem)))", failure: true)
+                Confirm.tell(AlertText.cancelFailed(problem))
             }
         }
     }
@@ -165,15 +175,18 @@ final class Store {
     func askToStop(_ hold: StatusDocument.Hold) {
         guard let binary, !acting else { return }
         acting = true
-        let (runner, inspector) = (runner, feed.inspector)
+        let (runner, inspector, name) = (runner, feed.inspector, SafeText.display(hold.name))
+        Log.actions.say("stop asked: hold \(name), pid \(hold.pid)")
         Task {
             defer { acting = false }
             let shown = await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector)
-            guard case .ready(let pid, let facts) = shown else { return tell(stop: shown) }
-            guard Confirm.ask(AlertText.stop(hold, pid: pid, facts: facts)) else { return }
+            guard case .ready(let pid, let facts) = shown else { return tell(stop: shown, name) }
+            guard Confirm.ask(AlertText.stop(hold, pid: pid, facts: facts)) else { return Log.actions.say("stop \(name): declined") }
             let again = recheck(await prepareStop(holdName: hold.name, using: binary, runner: runner, inspector: inspector), shown: shown)
-            guard case .ready = again else { return tell(stop: again) }
+            guard case .ready = again else { return tell(stop: again, name) }
             let outcome = sendStop(again, inspector: inspector, signal: feed.signal)
+            let words = switch outcome { case .sent: "sent"; case .changed: "not sent, the process changed"; case .failed(let e): "failed, errno \(e)" }
+            Log.actions.say("stop \(name): SIGTERM to pid \(pid), started \(facts.startSeconds): \(words)", failure: outcome != .sent)
             #if DEBUG
             Present.log("stop \(outcome)")
             #endif
@@ -182,7 +195,10 @@ final class Store {
         }
     }
 
-    private func tell(stop c: StopCheck) {
+    /// Never `.ready`, whose facts hold the process's arguments.
+    private func tell(stop c: StopCheck, _ name: String) {
+        let why = switch c { case .gone: "the hold is gone"; case .changed: "the hold changed"; case .refused(let r): r; case .ready: "" }
+        Log.actions.say("stop \(name): not sent, \(why)", failure: c != .gone && c != .changed)
         #if DEBUG
         Present.log("stop \(c)")
         #endif
@@ -191,11 +207,12 @@ final class Store {
 
     private func run(_ generation: Int) async {
         while binary == nil && !Task.isCancelled {
-            if let b = await feed.locate(chosenBinary) {
-                guard generation == self.generation else { return }
+            let found = await feed.locate(chosenBinary)
+            guard generation == self.generation else { return }
+            transitions.located(found).map(Log.status.say)
+            if let b = found {
                 binary = b
             } else {
-                guard generation == self.generation else { return }
                 await ingest(.problem(.notFound))
                 let nap = Task { [visible] in _ = try? await Task.sleep(for: visible.isEmpty ? .seconds(10) : .seconds(2)) }
                 self.nap = nap
@@ -229,6 +246,7 @@ final class Store {
     func ingest(_ r: StatusReading) async {
         let at = feed.clock()
         (reading, readAt) = (r, at)
+        transitions.reading(r).forEach(Log.status.say)
         let doc = document
         holdLiveSince = doc?.holds.isEmpty == false ? holdLiveSince ?? at : nil
         cancelRequested.formIntersection(doc?.tickets.filter { $0.state != "dead" }.map(\.id) ?? [])
@@ -237,6 +255,7 @@ final class Store {
         let snapshot = await reader.update(stateDir: dir, doc: doc, at: at)
         if snapshot.newSamples > 0 { lastSample = at }
         record = snapshot
+        transitions.read(errors: snapshot.errors).forEach(Log.telemetry.say)
         let labels = (doc?.holds.map(\.label) ?? []) + (doc?.tickets.map(\.label) ?? []) + snapshot.runs.attempts.values.map(\.label)
         for label in labels where labelColors[label] == nil { labelColors[label] = labelColors.count }
         recordState = feed.record ?? RecordState(now: at, lastSample: lastSample, holdLiveSince: holdLiveSince)
@@ -282,6 +301,8 @@ struct RecordSnapshot: Sendable {
     var finished: [RunLogLine] = []
     /// How many sample lines the last update read.
     var newSamples = 0
+    /// Why a log could not be read in the last update.
+    var errors: [String] = []
 }
 
 /// Tails the telemetry and the run log of the state directory `status` names, off the main actor.
@@ -306,7 +327,7 @@ actor RecordReader {
         }
         let (cut, atNS) = (at.addingTimeInterval(-Double(Self.keepS)), at.nanosecondsSince1970)
         let cutNS = cut.nanosecondsSince1970
-        snapshot.newSamples = 0
+        (snapshot.newSamples, snapshot.errors) = (0, [])
         drain(&samples) { line in
             guard let s = SampleLine(line: line), s.timeNS >= cutNS else { return }
             snapshot.newSamples += 1
@@ -340,7 +361,11 @@ actor RecordReader {
     private func drain(_ tail: inout JSONLTail?, _ each: (Data) -> Void) {
         guard var t = tail else { return }
         for _ in 0..<Self.chunksPerUpdate {
-            guard let lines = try? t.read(maxBytes: Self.chunk) else { break }
+            let lines: [Data]
+            do { lines = try t.read(maxBytes: Self.chunk) } catch {
+                snapshot.errors.append("\(t.current.lastPathComponent): errno \((error as? POSIXError)?.code.rawValue ?? -1)")
+                break
+            }
             lines.forEach(each)
             if t.atEnd { break }
         }
