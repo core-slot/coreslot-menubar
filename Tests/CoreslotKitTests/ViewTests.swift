@@ -188,11 +188,37 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
         #expect(Words.reason(.init(reason: "behind_ticket"), needMiB: 1, realMemory: false, ageS: 5) == "Waits its turn")
     }
 
+    // Mutation: drop the `restart_` case of `reason`, whose table the names reuse; a restart's reason has no name, red.
+    @Test func theReasonsHaveNamesForTheLegend() {
+        let codes = ["room_short", "behind_head", "behind_ticket", "section_busy", "watch_level", "watch_spacing", "restart_calm"]
+        #expect(Set(codes.compactMap(Words.reasonName)).count == codes.count)
+        #expect(Words.reasonName("restart_margin") == Words.reasonName("restart_calm") && Words.reasonName("new_code") == nil)
+    }
+
     // Mutation: test `processChecked` before `container`; a container hold that was not checked, red.
     @Test func theQuietLine() {
         #expect(Words.quietLine(container: true, processChecked: false) == "Container work: stop the container")
         #expect(Words.quietLine(container: false, processChecked: false) == "This process could not be checked")
         #expect(Words.quietLine(container: false, processChecked: true) == "Stop it where it was started")
+    }
+}
+
+@Suite struct ProblemWordsTests {
+    // Mutation: give a failed `status` the state-unreadable words; exit 70 no longer says its
+    // status, and the two states read the same, red.
+    @Test func eachProblemIsOneStateWithItsFix() {
+        let all: [Problem] = [.notFound, .stateUnreadable, .failed(exitCode: 70), .malformed, .timedOut]
+        let states = all.map { Words.problem($0).state }
+        #expect(Set(states).count == all.count)
+        #expect(Words.problem(.stateUnreadable).state == "coreslot cannot read its state")
+        #expect(Words.problem(.stateUnreadable).fix.contains("coreslot doctor"))
+        #expect(Words.problem(.failed(exitCode: 70)).state == "coreslot status failed with exit status 70")
+        #expect(Words.problem(.notFound).fix.contains("0.8.0"))
+    }
+
+    // Mutation: drop the negative case; -24 reads "failed with exit status -24", red.
+    @Test func aStartFailureIsNotAnExitStatus() {
+        #expect(Words.problem(.failed(exitCode: -EMFILE)) == ("coreslot status could not be run (system error 24)", "The next reading tries again."))
     }
 }
 

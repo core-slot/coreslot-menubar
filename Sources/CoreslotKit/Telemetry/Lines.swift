@@ -57,7 +57,8 @@ public struct EventLine: JSONLine, Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case enqueue(Enqueue)
         case waiting(Waiting)
-        case admitted
+        /// With the hold's name.
+        case admitted(String?)
         case ended(Ended)
         /// A line that ended the wait without a start, by its name: `cancelled`, `interrupted`,
         /// `refused`, `timeout` or `not_started`.
@@ -105,16 +106,26 @@ public struct EventLine: JSONLine, Sendable, Equatable {
         public let stoppedBy: String?
         /// The signal that killed the command, by name.
         public let signal: String?
+        /// The attempt's run-log line, for its exit status and peak; nil when it does not decode,
+        /// which costs the line nothing.
+        public let record: RunLogLine?
 
         enum CodingKeys: String, CodingKey {
             case failOpen = "fail_open"
             case stoppedBy = "stopped_by"
-            case signal
+            case signal, record
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            (failOpen, stoppedBy) = (try c.decodeIfPresent(String.self, forKey: .failOpen), try c.decodeIfPresent(String.self, forKey: .stoppedBy))
+            signal = try c.decodeIfPresent(String.self, forKey: .signal)
+            record = (try? c.decodeIfPresent(RunLogLine.self, forKey: .record)) ?? nil
         }
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, run, attempt, n, label
+        case v, e, run, attempt, n, label, hold
         case timeNS = "time_ns"
     }
 }
@@ -123,6 +134,9 @@ public struct EventLine: JSONLine, Sendable, Equatable {
 public struct MemoryLine: JSONLine, Sendable, Equatable {
     public let timeNS: Int64
     public let top: [Process]
+    /// The largest of the Docker VM's processes; nil when none runs, or when it does not decode,
+    /// which costs the line nothing.
+    public let vm: Process?
 
     public struct Process: Decodable, Sendable, Equatable {
         public let name: String
@@ -135,7 +149,7 @@ public struct MemoryLine: JSONLine, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, e, top
+        case v, e, top, vm
         case timeNS = "time_ns"
     }
 
@@ -147,6 +161,7 @@ public struct MemoryLine: JSONLine, Sendable, Equatable {
         }
         timeNS = try c.decode(.timeNS, in: Clamp.time)
         top = try c.decodeIfPresent([Process].self, forKey: .top) ?? []
+        vm = (try? c.decodeIfPresent(Process.self, forKey: .vm)) ?? nil
     }
 }
 
@@ -174,7 +189,7 @@ extension EventLine {
         switch try c.decode(String.self, forKey: .e) {
         case "enqueue": kind = .enqueue(try Enqueue(from: decoder))
         case "waiting": kind = .waiting(try Waiting(from: decoder))
-        case "admitted": kind = .admitted
+        case "admitted": kind = .admitted(try c.decodeIfPresent(String.self, forKey: .hold))
         case "ended": kind = .ended(try Ended(from: decoder))
         case let e where ["cancelled", "interrupted", "refused", "timeout", "not_started"].contains(e): kind = .waitEnded(e)
         case let e: kind = .other(e)

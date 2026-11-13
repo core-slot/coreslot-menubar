@@ -88,6 +88,14 @@ public enum Locate {
         ]
     }
 
+    /// The configuration file of a `coreslot` run with `environment`, by coreslot's rule: `config.toml`
+    /// in a non-empty `CORESLOT_STATE_DIR`, else `.config/coreslot/config.toml` in the home the
+    /// password database gives, never `$HOME`.
+    public static func configFile(environment: [String: String]) -> String {
+        if let dir = environment["CORESLOT_STATE_DIR"], !dir.isEmpty { return (dir as NSString).appendingPathComponent("config.toml") }
+        return (getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? "~") + "/.config/coreslot/config.toml"
+    }
+
     static func isExecutableFile(_ url: URL) -> Bool {
         var st = stat()
         // stat follows symlinks; a directory named coreslot is executable too, and is not one.

@@ -193,6 +193,33 @@ extension JSONLTail {
         }
     }
 
+    // Mutation: decode `vm` with `try`, without `try?`; the line with a bad `vm` is skipped, red.
+    // Mutation: leave `vm` out (nil); the VM's process is lost, red.
+    @Test func aMemoryLineKeepsItsVMAndABadVMCostsItNothing() throws {
+        let line = { (vm: String) in
+            MemoryLine(line: Data(#"{"v":1,"e":"memory","time_ns":7,"top":[{"name":"a","footprint_mib":9}]\#(vm)}"#.utf8))
+        }
+        let vm = MemoryLine.Process(name: "com.docker.krun", footprintMiB: 4885)
+        #expect(try #require(line(#","vm":{"name":"com.docker.krun","footprint_mib":4885,"resident_mib":361}"#)).vm == vm)
+        let bad = try #require(line(#","vm":{"name":7}"#))
+        #expect(bad.vm == nil && bad.top == [MemoryLine.Process(name: "a", footprintMiB: 9)])
+        #expect(try #require(line("")).vm == nil)
+    }
+
+    // Mutation: decode `record` with `try`, without `try?`; the line with a bad record is skipped, red.
+    // Mutation: leave `record` out (nil); the exit status and the peak are lost, red.
+    @Test func anEndedLineKeepsItsRecordAndABadRecordCostsItNothing() throws {
+        let line = { (record: String) in
+            EventLine(line: Data(#"{"v":1,"e":"ended","run":"r","attempt":1,"n":3,"time_ns":9,"label":"a","signal":"TERM","record":\#(record)}"#.utf8))
+        }
+        let good = try #require(line(#"{"time_ns":5,"label":"a","waited_s":1.5,"ran_s":2,"mem_peak_kib":2048,"exit":143,"fail_open":""}"#))
+        guard case .ended(let d) = good.kind else { Issue.record("not ended"); return }
+        #expect(d.signal == "TERM" && d.record?.exit == 143 && d.record?.memPeakKiB == 2048)
+        let bad = try #require(line(#"{"time_ns":"x"}"#))
+        guard case .ended(let b) = bad.kind else { Issue.record("not ended"); return }
+        #expect(b.record == nil && b.signal == "TERM")
+    }
+
     // Mutation: spell Enqueue's `real_memory` key `realMemory`; every enqueue line is skipped, red.
     @Test(arguments: Fixture.telemetryNames)
     func everyFixtureLineDecodes(_ name: String) throws {
@@ -278,6 +305,34 @@ extension JSONLTail {
         runs.prune(endedBefore: Date(timeIntervalSince1970: 10))
         #expect(runs.byTicket["t1"] == nil && runs.attempts.count == 2)
         #expect(runs.waiting(ticketName: "t2")?.end?.event == "refused" && runs.waiting(ticketName: "t3")?.end == nil)
+    }
+
+    // Mutation: take a line with `ahead` as the head's; the head's stretch is cut at 20 s, red.
+    // Mutation: leave out the attempt's admission; the first stretch runs on to 55 s, red.
+    // Mutation: drop the `headLineNS` bound; the last head's stretch runs to the window's end, red.
+    // Mutation: start each stretch at its line, not at the window (`max(h.timeNS, fromNS)` → `h.timeNS`), red.
+    @Test func aHeadsReasonHoldsUntilTheNextHeadItsAdmissionOrThirtyTwoSeconds() {
+        var runs = Runs()
+        runs.apply(line("a", 1, 1, enqueue("t1")))
+        runs.apply(line("a", 1, 10, .waiting(.init(reason: "room_short"))))
+        runs.apply(line("c", 1, 20, .waiting(.init(reason: "behind_ticket", ahead: "t1"))))
+        runs.apply(line("a", 1, 40, .waiting(.init(reason: "room_short"))))
+        runs.apply(line("a", 1, 50, .admitted("h")))
+        runs.apply(line("b", 1, 55, .waiting(.init(reason: "behind_head", noPass: "too_long"))))
+        let s = { (from: Int64, to: Int64, reason: String) in Runs.HeadReason(fromNS: from * 1_000_000_000, toNS: to * 1_000_000_000, reason: reason) }
+        #expect(runs.headReasons(fromNS: 0, toNS: 200_000_000_000) == [s(10, 40, "room_short"), s(40, 50, "room_short"), s(55, 87, "behind_head")])
+        #expect(runs.headReasons(fromNS: 45_000_000_000, toNS: 60_000_000_000) == [s(45, 50, "room_short"), s(55, 60, "behind_head")])
+    }
+
+    // Mutation: drop the hold index (`byHold[hold] = key`); the restart's attempt is not found, red.
+    @Test func aRunningAttemptIsFoundByItsHoldWithItsOwnArrival() {
+        var runs = Runs()
+        runs.apply(line("r", 1, 1, enqueue("t1")))
+        runs.apply(line("r", 1, 2, .admitted("h1")))
+        runs.apply(line("r", 2, 9, enqueue("t2")))
+        runs.apply(line("r", 2, 12, .admitted("h2")))
+        #expect(runs.running(holdName: "h2")?.arrivalNS == 9_000_000_000 && runs.running(holdName: "h1")?.key.attempt == 1)
+        #expect(runs.running(holdName: "h3") == nil)
     }
 
     // Mutation: record the ticket from the waiting line instead of `enqueue`; nothing is found, red.
