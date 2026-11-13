@@ -67,7 +67,7 @@ public actor StatusSource {
     private let find: @Sendable () -> URL?
     private let environment: [String: String]?
     private let runner: Runner
-    private var known: (url: URL, id: FileID?, binary: CoreslotBinary)?
+    private var known: (url: URL, id: [Int64]?, binary: CoreslotBinary)?
     private var interval = interval(visible: false)
     private var started: ContinuousClock.Instant?
     private var sleeper: Task<Void, Never>?
@@ -112,12 +112,21 @@ public actor StatusSource {
         return Polled(binary: binary, reading: interpret(r, binary: binary))
     }
 
-    /// The `coreslot` found now; its version is read again only for another path or another file there.
+    /// The `coreslot` found now; its version is read again only for another path, or a file there
+    /// replaced or changed.
     private func locate() async -> CoreslotBinary? {
         guard let url = find() else { known = nil; return nil }
-        let id = FileID(url)
+        let id = Self.identity(url)
         if let k = known, k.url == url, k.id == id { return k.binary }
         known = await CoreslotBinary.probe(url, environment: environment, runner: runner).map { (url, id, $0) }
         return known?.binary
+    }
+
+    /// The file's device, inode, modification time and size, symlinks followed: a file overwritten
+    /// in place keeps its device and inode.
+    static func identity(_ url: URL) -> [Int64]? {
+        var st = stat()
+        guard stat(url.path, &st) == 0 else { return nil }
+        return [Int64(st.st_dev), Int64(bitPattern: st.st_ino), Int64(st.st_mtimespec.tv_sec), Int64(st.st_mtimespec.tv_nsec), st.st_size]
     }
 }

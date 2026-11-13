@@ -253,4 +253,34 @@ private func waitUntil(_ limit: Duration = .seconds(5), _ done: () -> Bool) asyn
         #expect(await source.read().binary?.version == Version(0, 8, 1))
         #expect(fake.version.withLock { $0.runs } == 2)
     }
+
+    // Mutation: leave the modification time out of `identity`; the file rewritten at its own size
+    // keeps 0.8.0, red. Mutation: leave the size out; the file rewritten under its old time keeps
+    // 0.8.1, red.
+    @Test func aCoreslotOverwrittenInPlaceIsReadAgainAndLoggedAsChanged() async throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let exe = dir.appending(path: "coreslot")
+        try Data("#!/bin/sh\n# 1\n".utf8).write(to: exe)
+        let fake = Scripted([RunResult(exitCode: 0, stdout: try Fixture.data("status-idle.json"))])
+        let source = fake.source { exe }
+        var log = LogTransitions()
+        _ = log.located(await source.read().binary)
+        let inode = FileID(exe), later = Date().addingTimeInterval(10)
+        // In place, as `cp` over it does: the same device and inode, another time, then another size.
+        let overwrite = { (text: String, version: String) in
+            let h = try FileHandle(forWritingTo: exe)
+            try h.truncate(atOffset: 0)
+            try h.write(contentsOf: Data(text.utf8))
+            try h.close()
+            try FileManager.default.setAttributes([.modificationDate: later], ofItemAtPath: exe.path)
+            fake.version.withLock { $0.line = "coreslot \(version) (protocol formats: 2)" }
+        }
+        try overwrite("#!/bin/sh\n# 2\n", "0.8.1")
+        #expect(FileID(exe) == inode)
+        #expect(log.located(await source.read().binary)?.text == "coreslot changed: \(exe.path), version 0.8.1")
+        try overwrite("#!/bin/sh\n# 33\n", "0.8.2")
+        #expect(await source.read().binary?.version == Version(0, 8, 2))
+        #expect(fake.version.withLock { $0.runs } == 3)
+    }
 }
