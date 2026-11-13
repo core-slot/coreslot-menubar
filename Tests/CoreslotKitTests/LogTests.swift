@@ -23,6 +23,15 @@ import Testing
         ])
     }
 
+    // N5: notices-only readings in a row are one kind, whatever their notices. Mutation: a kind line
+    // on every notices-only reading (`now == kind && now != .notices ? [] :`); red.
+    @Test func noticesOnlyReadingsInARowSayOnlyTheirNotices() {
+        var t = LogTransitions()
+        #expect([[.schema(2)], [.schema(2), .tooOld], [.tooOld], [.tooOld]].map { said(t.reading(.notices($0))) } == [
+            ["status: notices only", "notice: schema 2"], ["notice: coreslot older than 0.8.0"], ["notice cleared: schema 2"], [],
+        ])
+    }
+
     // Mutation: return the notice's text without `SafeText.display`; red.
     // Mutation: diff notices on a problem too (`case .problem: []`); red.
     @Test func noticesAreLoggedAsTheyAppearAndClearAndAProblemLeavesThem() throws {

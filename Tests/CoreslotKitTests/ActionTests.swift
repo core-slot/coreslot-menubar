@@ -346,6 +346,25 @@ private final class Click: Sendable {
         #expect(AlertText.cancelRefused(ticketID: id, now: now) == "The request is no longer waiting, so there was nothing to withdraw.")
     }
 
+    // Mutation: drop the timeout branch; the run stopped at its timeout reads as failed with exit
+    // 143, and the alert says nothing was withdrawn, red.
+    @Test func aTimeoutIsItsOwnFailure() async throws {
+        let b = try Binary()
+        let fake = FakeRunner { _ in RunResult(exitCode: 143, timedOut: true) }
+        #expect(await cancel(ticketID: id, using: b.binary, runner: fake.runner) == .failed(.timedOut))
+        #expect(fake.calls.withLock { $0.count } == 1)
+    }
+
+    // Mutation: drop `$0.state != "dead"`; the ticket coreslot keeps as dead reads as still waiting, red.
+    @Test func aDeadTicketIsNoLongerWaiting() throws {
+        let doc = { (state: String) in try StatusDocument.decode(Fixture.data("status-queue.json") { doc in
+            doc["tickets"] = (doc["tickets"] as! [[String: Any]]).map { t in var t = t; if t["id"] as? String == id { t["state"] = state }; return t }
+        }) }
+        let words = { (state: String) in AlertText.cancelRefused(ticketID: id, now: .document(try doc(state), [])) }
+        #expect(try words("dead") == "The request is no longer waiting, so there was nothing to withdraw.")
+        #expect(try words("waiting") == "coreslot did not withdraw the request; it is still waiting.")
+    }
+
     // Mutation: treat every non-zero exit as refused; 70 reads status again, red.
     @Test func exit70Failed() async throws {
         let b = try Binary()
@@ -408,6 +427,24 @@ private final class Click: Sendable {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(DarwinProcessInspector().facts(p.processIdentifier) == nil && !shown.contains("PROBE_SECRET=x"))
+    }
+
+    // Mutation: drop the second read of the start time (`start(pid) == before`); the file and
+    // arguments read after the pid was reused pass as the first process's, red. Mutation: read the
+    // start time twice before the others; red.
+    @Test func aStartTimeThatChangesWhileReadingGivesNoFacts() {
+        let reads = Mutex<[String]>([])
+        let facts = { (starts: [Int64]) in
+            reads.withLock { $0 = [] }
+            let left = Mutex(starts)
+            return DarwinProcessInspector.facts(
+                42, start: { _ in reads.withLock { $0.append("start") }; return left.withLock { $0.removeFirst() } },
+                executable: { _ in reads.withLock { $0.append("executable") }; return FileID(device: 1, inode: 2) },
+                arguments: { _ in reads.withLock { $0.append("arguments") }; return ["coreslot"] })
+        }
+        #expect(facts([100, 101]) == nil)
+        #expect(facts([100, 100]) == ProcessFacts(executable: FileID(device: 1, inode: 2), startSeconds: 100, arguments: ["coreslot"]))
+        #expect(reads.withLock { $0 } == ["start", "executable", "arguments", "start"])
     }
 
     @Test func noProcessHasNoFacts() {

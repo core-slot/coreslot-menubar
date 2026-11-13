@@ -214,6 +214,26 @@ private func waitUntil(_ limit: Duration = .seconds(5), _ done: () -> Bool) asyn
         #expect(looks.withLock { $0 } == looked, "polling went on without a consumer")
     }
 
+    // The successor of `ended()`'s `consumed = false`: a consumer cancelled from outside, as a new
+    // choice in Settings cancels the store's loop, ends the polling at once, with no run after it.
+    // Mutation: drop both `Task.isCancelled` checks in `next()`; the wait spins to its end and runs
+    // `status` once more for nobody, red. Mutation: drop the cancellation handler around the wait;
+    // the consumer ends only when the 1.5 s are up, red.
+    @Test func aConsumerCancelledFromOutsideEndsThePollingAtOnce() async throws {
+        let fake = Scripted([RunResult(exitCode: 0, stdout: try Fixture.data("status-idle.json"))])
+        let source = fake.source()
+        await source.setInterval(.milliseconds(1500))
+        let done = Mutex(false)
+        let consumer = Task { for await _ in source.readings() {}; done.withLock { $0 = true } }
+        try await waitUntil { fake.stats.withLock { $0.runs } == 1 }
+        let cancelled = ContinuousClock.now
+        consumer.cancel()
+        try await waitUntil(.seconds(1)) { done.withLock { $0 } }
+        #expect(done.withLock { $0 } && ContinuousClock.now - cancelled < .milliseconds(500))
+        try await Task.sleep(until: cancelled + .seconds(2))
+        #expect(fake.stats.withLock { $0.runs } == 1)
+    }
+
     // Mutation: keep the version by path alone (drop `k.id == id`); the coreslot replaced at the same
     // path keeps 0.8.0, red. Mutation: read the version on every poll (no `known`); `version` runs
     // once per poll, red.

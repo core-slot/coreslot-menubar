@@ -307,6 +307,18 @@ extension JSONLTail {
         #expect(runs.waiting(ticketName: "t2")?.end?.event == "refused" && runs.waiting(ticketName: "t3")?.end == nil)
     }
 
+    // Mutation: drop the `heads` line from `prune`; the head line of 10 s stays, red. Mutation: cut
+    // the heads at the date itself (drop `- headLineNS`); the line of 90 s, whose stretch reaches
+    // past the date, goes, red.
+    @Test func pruneKeepsTheHeadLinesThatCanStillHold() {
+        var runs = Runs()
+        runs.apply(line("a", 1, 1, enqueue("t1")))
+        runs.apply(line("a", 1, 10, .waiting(.init(reason: "room_short"))))
+        runs.apply(line("a", 1, 90, .waiting(.init(reason: "room_short"))))
+        runs.prune(endedBefore: Date(timeIntervalSince1970: 100))
+        #expect(runs.heads.map(\.timeNS) == [90_000_000_000])
+    }
+
     // Mutation: take a line with `ahead` as the head's; the head's stretch is cut at 20 s, red.
     // Mutation: leave out the attempt's admission; the first stretch runs on to 55 s, red.
     // Mutation: drop the `headLineNS` bound; the last head's stretch runs to the window's end, red.
