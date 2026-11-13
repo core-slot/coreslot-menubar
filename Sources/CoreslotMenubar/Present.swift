@@ -329,8 +329,9 @@ enum Present {
         } else {
             clock = { then }
         }
+        // The runner is a fake: the binary only has to exist, so it is this presenter itself, never run.
         return Feed(
-            find: { _ in found ? URL(filePath: "/fixture/coreslot") : nil }, runner: runner, stateDir: telemetry, clock: clock, record: v.record,
+            find: { _ in found ? Bundle.main.executableURL : nil }, runner: runner, stateDir: telemetry, clock: clock, record: v.record,
             inspector: FixtureInspector(readable: v.readable), signal: { _, _ in EPERM })
     }
 
