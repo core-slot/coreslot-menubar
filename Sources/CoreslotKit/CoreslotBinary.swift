@@ -53,6 +53,8 @@ public struct Version: Comparable, Sendable, CustomStringConvertible {
 public struct CoreslotBinary: Sendable, Equatable {
     public let url: URL
     public let version: Version
+    /// The file's `StatusSource.identity` when it was read: the same file overwritten in place is another binary.
+    public var identity: [Int64] = []
 
     public init(url: URL, version: Version) {
         (self.url, self.version) = (url, version)

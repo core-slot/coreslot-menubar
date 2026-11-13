@@ -67,7 +67,7 @@ public actor StatusSource {
     private let find: @Sendable () -> URL?
     private let environment: [String: String]?
     private let runner: Runner
-    private var known: (url: URL, id: [Int64]?, binary: CoreslotBinary)?
+    private var known: CoreslotBinary?
     private var interval = interval(visible: false)
     private var started: ContinuousClock.Instant?
     private var sleeper: Task<Void, Never>?
@@ -112,14 +112,14 @@ public actor StatusSource {
         return Polled(binary: binary, reading: interpret(r, binary: binary))
     }
 
-    /// The `coreslot` found now; its version is read again only for another path, or a file there
-    /// replaced or changed.
+    /// The `coreslot` found now, none when it cannot be read; its version is read again only for
+    /// another path, or a file there replaced or changed.
     private func locate() async -> CoreslotBinary? {
-        guard let url = find() else { known = nil; return nil }
-        let id = Self.identity(url)
-        if let k = known, k.url == url, k.id == id { return k.binary }
-        known = await CoreslotBinary.probe(url, environment: environment, runner: runner).map { (url, id, $0) }
-        return known?.binary
+        guard let url = find(), let id = Self.identity(url) else { known = nil; return nil }
+        if let k = known, k.url == url, k.identity == id { return k }
+        known = await CoreslotBinary.probe(url, environment: environment, runner: runner)
+        known?.identity = id
+        return known
     }
 
     /// The file's device, inode, modification time and size, symlinks followed: a file overwritten

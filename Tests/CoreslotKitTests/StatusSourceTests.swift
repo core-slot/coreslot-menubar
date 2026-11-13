@@ -3,7 +3,8 @@ import Synchronization
 import Testing
 @testable import CoreslotKit
 
-private let release = CoreslotBinary(url: URL(filePath: "/opt/coreslot"), version: Version(0, 8, 0))
+/// A file that exists, as the source reads no `coreslot` it cannot `stat`; the fake runner never runs it.
+private let release = CoreslotBinary(url: URL(filePath: "/bin/sh"), version: Version(0, 8, 0))
 
 @Suite struct InterpretTests {
     @Test func aDocumentWithExit0HasNoNotice() throws {
@@ -234,7 +235,7 @@ private func waitUntil(_ limit: Duration = .seconds(5), _ done: () -> Bool) asyn
         #expect(fake.stats.withLock { $0.runs } == 1)
     }
 
-    // Mutation: keep the version by path alone (drop `k.id == id`); the coreslot replaced at the same
+    // Mutation: keep the version by path alone (drop `k.identity == id`); the coreslot replaced at the same
     // path keeps 0.8.0, red. Mutation: read the version on every poll (no `known`); `version` runs
     // once per poll, red.
     @Test func theVersionIsReadAgainOnlyWhenTheFileChanges() async throws {
@@ -254,9 +255,18 @@ private func waitUntil(_ limit: Duration = .seconds(5), _ done: () -> Bool) asyn
         #expect(fake.version.withLock { $0.runs } == 2)
     }
 
+    // Mutation: probe a file that cannot be read (`Self.identity(url) ?? []`); the fake answers its
+    // `version`, and a coreslot that is not there is found, red.
+    @Test func aFileThatCannotBeReadIsNoCoreslot() async {
+        let fake = Scripted([RunResult(exitCode: 0, stdout: Data())])
+        #expect(await fake.source { URL(filePath: "/nonexistent/coreslot") }.read() == Polled(binary: nil, reading: .problem(.notFound)))
+        #expect(fake.version.withLock { $0.runs } == 0)
+    }
+
     // Mutation: leave the modification time out of `identity`; the file rewritten at its own size
     // keeps 0.8.0, red. Mutation: leave the size out; the file rewritten under its old time keeps
-    // 0.8.1, red.
+    // 0.8.1, red. Mutation: compare path and version alone in `located` (identity out of the
+    // binary's equality); the file rewritten with the same version logs nothing, red.
     @Test func aCoreslotOverwrittenInPlaceIsReadAgainAndLoggedAsChanged() async throws {
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -280,7 +290,10 @@ private func waitUntil(_ limit: Duration = .seconds(5), _ done: () -> Bool) asyn
         #expect(FileID(exe) == inode)
         #expect(log.located(await source.read().binary)?.text == "coreslot changed: \(exe.path), version 0.8.1")
         try overwrite("#!/bin/sh\n# 33\n", "0.8.2")
-        #expect(await source.read().binary?.version == Version(0, 8, 2))
-        #expect(fake.version.withLock { $0.runs } == 3)
+        #expect(log.located(await source.read().binary)?.text == "coreslot changed: \(exe.path), version 0.8.2")
+        try overwrite("#!/bin/sh\n# 444\n", "0.8.2")
+        #expect(log.located(await source.read().binary)?.text == "coreslot changed: \(exe.path), version 0.8.2")
+        #expect(log.located(await source.read().binary) == nil)
+        #expect(fake.version.withLock { $0.runs } == 4)
     }
 }
