@@ -30,13 +30,16 @@ by default, offered once the app runs from `/Applications`.
 
 ## Install
 
-With the first release, as a Homebrew cask beside the coreslot formula:
+From the Homebrew tap, coreslot first and then the app, which is signed with a Developer ID and
+notarised by Apple:
 
 ```sh
+brew install core-slot/tap/coreslot
 brew install --cask core-slot/tap/coreslot-menubar
 ```
 
-Until then, build it from source: see [CONTRIBUTING.md](CONTRIBUTING.md).
+The cask does not install coreslot, so an existing coreslot (for example in `~/.local/bin`) is the
+one the app uses. To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
