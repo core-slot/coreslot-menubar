@@ -114,12 +114,10 @@ import Testing
         #expect(report.runs > 0)
         // The fixture waited under a second, so both are 0; distinct values tell the keys apart.
         // Mutation: swap the median and longest keys; red here only.
-        var waited = raw
-        waited["waits"] = waits.merging(["median_s": 12.5, "longest_s": 90]) { $1 }
-        let w = try JSONDecoder().decode(Report.self, from: Fixture.encode(waited))
+        let waited = try Fixture.data("report.json") { $0["waits"] = waits.merging(["median_s": 12.5, "longest_s": 90]) { $1 } }
+        let w = try JSONDecoder().decode(Report.self, from: waited)
         #expect(w.medianWaitS == 12.5 && w.longestWaitS == 90)
-        var other = raw
-        other["schema"] = 2
-        #expect(throws: OtherSchema.self) { try JSONDecoder().decode(Report.self, from: Fixture.encode(other)) }
+        let other = try Fixture.data("report.json") { $0["schema"] = 2 }
+        #expect(throws: OtherSchema.self) { try JSONDecoder().decode(Report.self, from: other) }
     }
 }

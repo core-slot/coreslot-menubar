@@ -5,12 +5,6 @@ import Testing
 
 private let release = CoreslotBinary(url: URL(filePath: "/opt/coreslot"), version: Version(0, 8, 0))
 
-private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throws -> Data {
-    var doc = try Fixture.object(name)
-    change(&doc)
-    return try Fixture.encode(doc)
-}
-
 @Suite struct InterpretTests {
     @Test func aDocumentWithExit0HasNoNotice() throws {
         let data = try Fixture.data("status-queue.json")
@@ -20,7 +14,7 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
 
     // Mutation: branch on the exit code before decoding (exit 3 is stateUnreadable); red.
     @Test func aDocumentWithExit3IsStillADocument() throws {
-        let data = try with("status-queue.json") { $0["config_error"] = "config.toml: line 2: bad value" }
+        let data = try Fixture.data("status-queue.json") { $0["config_error"] = "config.toml: line 2: bad value" }
         guard case .document(let doc, let notices) = interpret(RunResult(exitCode: 3, stdout: data), binary: release) else {
             Issue.record("not a document")
             return
@@ -31,7 +25,7 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
 
     // Mutation: drop the degraded and format notices from `notices`; red.
     @Test func degradedAndAFormatNotUnderstoodAreNotices() throws {
-        let data = try with("status-queue.json") {
+        let data = try Fixture.data("status-queue.json") {
             $0["degraded"] = ["reason": "holds/ unreadable", "first_ns": 1, "count": 1, "malformed": false]
             $0["format_understood"] = false
             $0["format_error"] = "FORMAT: not a number"
@@ -58,7 +52,7 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
     // Mutation: drop the schema probe in StatusDocument.decode; the schema-2 document that decodes
     // is a document, and the one of another shape is .malformed, red.
     @Test func anotherSchemaIsNoticesOnly() throws {
-        let decodable = try with("status-queue.json") { $0["schema"] = 2 }
+        let decodable = try Fixture.data("status-queue.json") { $0["schema"] = 2 }
         for data in [decodable, Data(#"{"schema": 2, "queue": []}"#.utf8)] {
             #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: release) == .notices([.schema(2)]))
         }
@@ -66,7 +60,7 @@ private func with(_ name: String, _ change: (inout [String: Any]) -> Void) throw
 
     // Mutation: drop the too-old branch for a stdout that does not decode; it is .malformed, red.
     @Test func aCoreslotTooOldToDecodeIsTooOldNotMalformed() throws {
-        let data = try with("status-0.7.0.json") { $0["watch"] = nil; $0["mem"] = nil }
+        let data = try Fixture.data("status-0.7.0.json") { $0["watch"] = nil; $0["mem"] = nil }
         let old = CoreslotBinary(url: release.url, version: Version(0, 3, 0))
         #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: old) == .notices([.tooOld]))
         #expect(interpret(RunResult(exitCode: 0, stdout: data), binary: release) == .problem(.malformed))

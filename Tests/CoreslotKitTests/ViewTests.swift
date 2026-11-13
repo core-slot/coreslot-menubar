@@ -2,10 +2,8 @@ import Foundation
 import Testing
 @testable import CoreslotKit
 
-private func document(_ name: String, _ change: (inout [String: Any]) -> Void = { _ in }) throws -> StatusDocument {
-    var raw = try Fixture.object(name)
-    change(&raw)
-    return try StatusDocument.decode(Fixture.encode(raw))
+private func document(_ name: String, _ change: ((inout [String: Any]) -> Void)? = nil) throws -> StatusDocument {
+    try StatusDocument.decode(Fixture.data(name, change))
 }
 
 private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
