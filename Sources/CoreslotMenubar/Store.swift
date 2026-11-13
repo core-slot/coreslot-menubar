@@ -46,8 +46,6 @@ final class Store {
     private(set) var report: Report?
     /// Each label's colour, by order of first sight; a new label never repaints the others.
     private(set) var labelColors: [String: Int] = [:]
-    /// Tickets whose cancel coreslot accepted, until they leave the queue.
-    private(set) var cancelRequested: Set<String> = []
     /// Holds whose process the app could not read: no stop button, and the quiet line says so.
     private(set) var unchecked: Set<String> = []
     /// Chosen in Settings: another `coreslot` than the one found.
@@ -155,7 +153,7 @@ final class Store {
             switch await cancel(ticketID: ticket.id, using: binary, runner: runner) {
             case .requested:
                 Log.actions.say("cancel requested: ticket \(id)")
-                cancelRequested.insert(ticket.id)
+                await source?.readNow() // `status` lists the request, as it does one made elsewhere
             case .refused(let now):
                 Log.actions.say("cancel refused, exit 75; status now \(LogTransitions.Kind(now).text): ticket \(id)")
                 await ingest(now)
@@ -237,7 +235,6 @@ final class Store {
         transitions.reading(r).forEach(Log.status.say)
         let doc = document
         holdLiveSince = doc?.holds.isEmpty == false ? holdLiveSince ?? at : nil
-        cancelRequested.formIntersection(doc?.tickets.filter { $0.state != "dead" }.map(\.id) ?? [])
         unchecked = Set((doc?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name))
         let dir = feed.stateDir ?? doc.flatMap { $0.stateDir.isEmpty ? nil : URL(filePath: $0.stateDir, directoryHint: .isDirectory) }
         let snapshot = await reader.update(stateDir: dir, doc: doc, at: at)

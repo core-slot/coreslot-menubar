@@ -81,7 +81,7 @@ struct WaitingRow: Identifiable {
     let reason: String?
     let waited: String
     let trailing: String?
-    /// coreslot accepted a cancel; the row says so until the ticket leaves the queue.
+    /// `status` lists a cancel for it, made here or elsewhere; the row says so until the ticket leaves the queue.
     let cancelRequested: Bool
 }
 
@@ -127,8 +127,7 @@ extension Store {
 
     private func live(_ doc: StatusDocument) -> PopoverModel.Live {
         let off = recordState == .looksOff
-        let waiting = doc.tickets.filter { $0.state != "dead" }
-        let rows = waiting.enumerated().map { waitingRow($0.element, first: $0.offset == 0, recordOff: off) }
+        let rows = doc.tickets.filter(\.live).map { waitingRow($0, requested: doc.cancelRequests.contains($0.id), recordOff: off) }
         let totals = report.map { r in
             r.runs == 0 ? "Last 24 h: no runs"
                 : "Last 24 h: \(r.runs) \(r.runs == 1 ? "run" : "runs") · median wait \(Formatting.duration(r.medianWaitS)) · longest \(Formatting.duration(r.longestWaitS))"
@@ -199,14 +198,14 @@ extension Store {
             quiet: Words.quietLine(container: h.container == true, processChecked: !unchecked.contains(h.name)))
     }
 
-    private func waitingRow(_ t: StatusDocument.Ticket, first: Bool, recordOff: Bool) -> WaitingRow {
+    private func waitingRow(_ t: StatusDocument.Ticket, requested: Bool, recordOff: Bool) -> WaitingRow {
         let attempt = recordOff ? nil : t.name.flatMap { runs(ticketName: $0) }
         let reason = attempt.flatMap { a in
             a.waiting.flatMap { w in
                 Words.reason(w, needMiB: t.needMiB, realMemory: a.realMemory, ageS: max(0, (nowNS - (a.waitingNS ?? nowNS)) / 1_000_000_000))
             }
         }
-        let trailing: String? = if first {
+        let trailing: String? = if t.position == 1 {
             Formatting.firstTicketWait(t.expectedWaitS)
         } else if let typical = attempt?.typicalS, typical > 0 {
             "usually \(Formatting.duration(Double(typical)))"
@@ -216,7 +215,7 @@ extension Store {
         return WaitingRow(
             ticket: t, label: SafeText.display(t.label), color: color(t.label), reason: reason,
             waited: "waited \(Formatting.duration(t.waitedS))", trailing: trailing,
-            cancelRequested: cancelRequested.contains(t.id))
+            cancelRequested: requested)
     }
 
     private func runs(ticketName: String) -> Runs.Attempt? { record.runs.waiting(ticketName: ticketName) }

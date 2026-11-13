@@ -72,7 +72,7 @@ public enum AlertText {
         guard case .document(let doc, _) = now else {
             return "coreslot did not withdraw the request, and its status cannot be read now."
         }
-        return doc.tickets.contains { $0.id == ticketID && $0.state != "dead" }
+        return doc.tickets.contains { $0.id == ticketID && $0.live }
             ? "coreslot did not withdraw the request; it is still waiting."
             : "The request is no longer waiting, so there was nothing to withdraw."
     }

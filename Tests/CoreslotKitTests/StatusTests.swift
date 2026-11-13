@@ -100,6 +100,13 @@ enum Fixture {
         #expect(decoded.cancelRequests.isEmpty && decoded.tickets.count == 2)
     }
 
+    // A cancel made in a terminal is in `cancel_requests` as the ticket's id, as `coreslot cancel` printed it.
+    // Mutation: decode `cancel_requests` from `dead_holds`; red.
+    @Test func aCancelMadeElsewhereIsRead() throws {
+        let doc = try StatusDocument.decode(Fixture.data("status-queue.json") { $0["cancel_requests"] = [($0["tickets"] as! [[String: Any]])[1]["id"]!] })
+        #expect(doc.cancelRequests == [doc.tickets[1].id] && doc.tickets.map(\.position) == [1, 2])
+    }
+
     // Mutation: decode a hold's `footprint_mib` unclamped (`c.decode(Int64.self, …)`); red.
     // Mutation: decode a ticket's `waited_s` unclamped; 1e300 stays, red.
     @Test func holdAndTicketNumbersAreClamped() throws {

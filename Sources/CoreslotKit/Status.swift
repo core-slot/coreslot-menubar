@@ -136,6 +136,9 @@ public struct StatusDocument: Decodable, Sendable, Equatable {
             (waitedS, position) = (try c.decodeSeconds(.waitedS), try c.decode(Int64.self, forKey: .position))
             (state, expectedWaitS) = (try c.decode(String.self, forKey: .state), try c.decodeIfPresent(.expectedWaitS, in: Clamp.amount))
         }
+
+        /// Waiting or stalled: in the queue, where a dead ticket only awaits reconciliation.
+        public var live: Bool { state != "dead" }
     }
 
     /// Decodes the keys whatever `schema` says; `decode(_:)` is what checks the schema first.

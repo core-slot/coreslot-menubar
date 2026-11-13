@@ -13,7 +13,7 @@ public enum IconState: Sendable, Equatable {
         let fill = Self.quarters(doc.mem)
         if ["yellow", "red", "floor"].contains(doc.watch.level) {
             self = .pressure
-        } else if doc.tickets.contains(where: { $0.state != "dead" }) {
+        } else if doc.tickets.contains(where: \.live) {
             self = .waiting(fill: fill)
         } else if !doc.holds.isEmpty {
             self = .running(fill: fill)

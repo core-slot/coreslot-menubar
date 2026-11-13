@@ -151,9 +151,8 @@ extension Store {
                     Formatting.timeLeft(h.leftS),
                 ] + (h.stops > 0 ? ["restarted after \(h.stops) memory \(h.stops == 1 ? "stop" : "stops")"] : [])))
         }
-        let live = doc.tickets.filter { $0.state != "dead" }
-        for (i, t) in live.enumerated() {
-            let first = i == 0, from = t.name.flatMap { record.runs.waiting(ticketName: $0)?.arrivalNS } ?? t.createdNS
+        for t in doc.tickets where t.live {
+            let first = t.position == 1, from = t.name.flatMap { record.runs.waiting(ticketName: $0)?.arrivalNS } ?? t.createdNS
             out.append(.init(
                 id: t.id, run: t.id, rawLabel: t.label, label: SafeText.display(t.label), color: color(t.label), waitFromNS: from, runFromNS: nil,
                 toNS: nowNS, live: true, stopped: false, restart: false, timedOut: false, forecastEndNS: nil,
@@ -161,7 +160,7 @@ extension Store {
                 detail: [
                     SafeText.display(t.label), "waiting since \(clock(from)), \(duration(from, nowNS))",
                     "needs \(Formatting.size(t.needMiB))",
-                    first ? Formatting.firstTicketWait(t.expectedWaitS) : "behind \(i) in the queue",
+                    first ? Formatting.firstTicketWait(t.expectedWaitS) : "behind \(t.position - 1) in the queue",
                 ]))
         }
         return out.filter { $0.toNS >= fromNS }
