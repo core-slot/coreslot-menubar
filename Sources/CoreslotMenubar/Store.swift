@@ -65,6 +65,7 @@ final class Store {
     @ObservationIgnored private var holdLiveSince: Date?
     @ObservationIgnored private var reportAt: Date?
     @ObservationIgnored private var reportTask: Task<Void, Never>?
+    @ObservationIgnored private var dockerTask: Task<Void, Never>?
     /// Asks for `status --docker` at most once in 30 s, and only while a surface is visible.
     @ObservationIgnored private var dockerSource: DockerSource?
     /// One confirmation at a time.
@@ -227,6 +228,7 @@ final class Store {
     func readOnce() async {
         await take(await newSource().read())
         await reportTask?.value
+        await dockerTask?.value
     }
     #endif
 
@@ -269,9 +271,13 @@ final class Store {
         let source = dockerSource ?? DockerSource(runner: runner)
         dockerSource = source
         let (generation, at) = (generation, feed.clock())
-        Task {
+        dockerTask = Task {
             guard let r = await source.read(binary, at: at), generation == self.generation else { return }
             docker = r
+            #if DEBUG
+            let model = DockerModel(r)
+            Present.log("docker \(model.vm ?? model.note ?? "none") rows \(model.rows.count) \(model.more ?? "")")
+            #endif
         }
     }
 
