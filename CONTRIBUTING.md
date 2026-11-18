@@ -65,7 +65,10 @@ process name of the `memory` lines with `proc-1`, `proc-2`, …, and refuses to 
 holds another label, your user name or your home directory. Read the diff before committing it.
 
 `status-0.7.0.json` is not from the script: it is a 0.8.0 fixture with the keys 0.8.0 added
-removed by hand, so the tests cover an older coreslot.
+removed by hand, so the tests cover an older coreslot. `docker-ok.json` is also by hand: the
+`status --json --docker` keys the app reads, with made-up container names, because a real Docker
+Desktop state is not repeatable and its names and images are not ours to publish. Its container ids
+are made up too: never paste an id from `docker ps` into a fixture.
 
 ## Looking at the UI
 
@@ -95,7 +98,10 @@ nothing printed), `exit-64`, `exit-70`, `malformed` and `timeout`; the queue wit
 looking off, `record-off`; holds reserving more than the machine has, `shortfall`; labels and a
 degraded reason with control, bidirectional, zero-width and tag characters and a container hold,
 `untrusted`; more rows than the popover shows unscrolled, `many`; holds whose process the app
-cannot read, `unchecked`; two hours of made-up record before the queue's moment, with waits and
+cannot read, `unchecked`; the Docker section over `docker-ok.json`, `docker`, with twelve
+containers, `docker-many`, with another engine, `docker-other-engine`, and with no Docker
+Desktop VM on the Apple hypervisor, `docker-not-running` (the others answer
+`--docker` as a coreslot that does not know it); two hours of made-up record before the queue's moment, with waits and
 their reasons, a watchdog stop and its restart, a run past its timeout, a silence and a failed
 reading, `night`, written under the temporary directory, and the same with the record looking off,
 `record-off-night`; and `icons`, every state of the menu bar icon. `alert-stop`,

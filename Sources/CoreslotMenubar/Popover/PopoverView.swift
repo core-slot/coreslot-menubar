@@ -29,6 +29,11 @@ struct PopoverView: View {
                 Divider()
                 ListsSection(store: store, live: live)
                 Divider()
+                let docker = DockerModel(store.dockerShown)
+                if !docker.isEmpty {
+                    DockerSection(model: docker)
+                    Divider()
+                }
                 RecentStrip(model: live.strip)
                 Divider()
                 FooterView(totals: live.totals, openTimeline: openTimeline)

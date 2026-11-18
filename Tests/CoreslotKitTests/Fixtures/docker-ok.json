@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "config_warnings": [],
+  "docker": {
+    "state": "ok",
+    "reason": "",
+    "vm": {
+      "mem_mib": 16009,
+      "identified": true,
+      "footprint_mib": 16494
+    },
+    "free_est_mib": 14708,
+    "containers": [
+      {
+        "id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "name": "ci-job-1",
+        "image": "ci/app:abc123",
+        "project": "",
+        "usage_mib": 1128,
+        "limit_mib": 4096
+      },
+      {
+        "id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "name": "shop-web-1",
+        "image": "shop-web",
+        "project": "shop",
+        "usage_mib": 161,
+        "limit_mib": 16009
+      },
+      {
+        "id": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "name": "shop-redis-1",
+        "image": "redis:7.4-alpine",
+        "project": "shop",
+        "usage_mib": 12,
+        "limit_mib": 16009
+      }
+    ]
+  }
+}

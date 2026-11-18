@@ -24,6 +24,9 @@ enum Present {
         var record: RecordState?
         var change: (@Sendable (inout [String: Any]) -> Void)?
         var result: (@Sendable (Data) -> RunResult)?
+        /// What `status --json --docker` answers: `docker-ok.json` with this change; without it, a
+        /// coreslot that does not know the flag (exit 64).
+        var docker: (@Sendable (inout [String: Any]) -> Void)?
         /// False: the app cannot read any hold's process.
         var readable = true
         /// Two hours of made-up record before the queue's moment, for the timeline's look.
@@ -82,6 +85,19 @@ enum Present {
         }, result: exit3),
         .init(name: "many", change: many),
         .init(name: "unchecked", readable: false),
+        .init(name: "docker", docker: { _ in }),
+        .init(name: "docker-many", docker: { raw in
+            edit(&raw, "docker") { d in
+                d["containers"] = (1...12).map { ["id": String(format: "%064x", $0), "name": "service-\($0)-1", "image": "registry/service-\($0):1.\($0)", "project": "shop", "usage_mib": $0 * 90, "limit_mib": 16009] as [String: Any] }
+            }
+        }),
+        .init(name: "docker-other-engine", docker: { edit(&$0, "docker") { $0["state"] = "other_engine" } }),
+        .init(name: "docker-not-running", docker: { edit(&$0, "docker") { d in
+            d["state"] = "not_running"
+            d["free_est_mib"] = NSNull()
+            d["containers"] = [Any]()
+            d["vm"] = ["mem_mib": NSNull(), "identified": false, "footprint_mib": NSNull()]
+        } }),
         .init(name: "night", night: true),
         .init(name: "record-off-night", record: .looksOff, night: true),
     ]
@@ -315,8 +331,15 @@ enum Present {
         if v.night { telemetry = night(before: then) }
         let launched = Date()
         let found = v.name != "not-found"
+        let dockerAnswer: RunResult = {
+            guard let change = v.docker, let data = try? Data(contentsOf: fixtures.appending(path: "docker-ok.json")),
+                  var raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return RunResult(exitCode: 64) }
+            change(&raw)
+            return RunResult(exitCode: 0, stdout: (try? JSONSerialization.data(withJSONObject: raw)) ?? data)
+        }()
         let runner = Runner { _, args, _, _ -> RunResult in
             switch args.first {
+            case "status" where args.contains("--docker"): return dockerAnswer
             case "status": return status
             case "report": return report
             case "version": return RunResult(exitCode: 0, stdout: Data("coreslot \(v.version.isDevelopment ? "0.0.0" : "\(v.version)") (protocol formats: 2)".utf8))
