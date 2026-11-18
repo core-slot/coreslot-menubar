@@ -8,7 +8,7 @@ menu bar and shows:
 - what runs now, how much memory each command holds, and when it is expected to finish;
 - what waits, in queue order, why each one waits, and when the first in line is expected to start;
 - where the machine's memory is: coreslot's commands, what coreslot has set aside for their growth,
-  everything outside coreslot, what is free, and the reserve coreslot keeps back;
+  everything outside coreslot, what is free for new commands, and the reserve coreslot keeps back;
 - the last minutes to hours as a timeline.
 
 It can also withdraw a waiting request and stop a running command, each after a confirmation.

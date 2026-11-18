@@ -13,9 +13,9 @@ struct MemorySection: View {
                     Text(inUse).font(.title2.weight(.semibold)).monospacedDigit()
                 }
                 if let of = model.ofMachine { Text(of).font(.callout).foregroundStyle(.secondary) }
-                Spacer(minLength: 8)
-                if let free = model.free { Text(free).font(.callout).monospacedDigit() }
             }
+            // A line of its own: with the memory it is taken from, it does not fit beside the figure.
+            if let free = model.free { Text(free).font(.callout).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
             if !model.segments.isEmpty {
                 MemoryBarView(segments: model.segments).frame(height: 10)
                 FlowLayout {

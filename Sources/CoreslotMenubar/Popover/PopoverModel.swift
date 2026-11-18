@@ -144,7 +144,7 @@ extension Store {
             m.unread = "Memory could not be read"
             return m
         }
-        m.free = "\(Formatting.size(mem.freeMiB)) free for new commands"
+        m.free = Words.free(mem)
         guard let bar = MemoryBar(doc), let machine = mem.machineMiB, machine > 0 else {
             m.free! += " · \(Formatting.size(mem.reservedMiB)) reserved"
             return m
@@ -172,7 +172,7 @@ extension Store {
         if !doc.holds.isEmpty { m.legend.append(.init(kind: .holds(colors: doc.holds.map { color($0.label) }), text: "coreslot \(Formatting.size(held))")) }
         m.legend.append(.init(kind: .outside, text: "outside \(Formatting.size(part(.outside)))"))
         if bar.setAsideMiB > 0 { m.legend.append(.init(kind: .setAside(short: bar.shortfallMiB != nil), text: "set aside \(Formatting.size(bar.setAsideMiB))")) }
-        m.legend.append(.init(kind: .room, text: "free \(Formatting.size(part(.room)))"))
+        m.legend.append(.init(kind: .room, text: "\(Words.freeForNewCommands) \(Formatting.size(part(.room)))"))
         m.legend.append(.init(kind: .reserve, text: "reserve \(Formatting.size(part(.reserve)))"))
         if let short = bar.shortfallMiB {
             m.shortfall = "Set aside \(Formatting.size(bar.setAsideMiB)), \(Formatting.size(short)) short"
