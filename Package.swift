@@ -12,6 +12,7 @@ let package = Package(
         .executableTarget(name: "CoreslotMenubar", dependencies: ["CoreslotKit"]),
         .testTarget(
             name: "CoreslotKitTests", dependencies: ["CoreslotKit"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "CoreslotMenubarTests", dependencies: ["CoreslotMenubar", "CoreslotKit"]),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -159,27 +159,17 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
     // Mutation: drop the 30 s check; the read at 10 s runs too, red.
     @Test func atMostOneReadPer30Seconds() async {
         let calls = Calls(), source = DockerSource(runner: calls.runner)
-        #expect(await source.read(release, visible: true, at: at(0)) != nil)
-        #expect(await source.read(release, visible: true, at: at(10)) == nil)
-        #expect(await source.read(release, visible: true, at: at(29.9)) == nil)
-        #expect(await source.read(release, visible: true, at: at(30)) != nil)
+        #expect(await source.read(release, at: at(0)) != nil)
+        #expect(await source.read(release, at: at(10)) == nil)
+        #expect(await source.read(release, at: at(29.9)) == nil)
+        #expect(await source.read(release, at: at(30)) != nil)
         #expect(calls.count == 2)
-    }
-
-    // Mutation: read while hidden; red. Mutation: count a hidden poll as a read, so the read on opening waits; red.
-    @Test func onlyWhileTheWindowIsOpen() async {
-        let calls = Calls(), source = DockerSource(runner: calls.runner)
-        #expect(await source.read(release, visible: false, at: at(0)) == nil)
-        #expect(await source.read(release, visible: false, at: at(100)) == nil)
-        #expect(calls.count == 0)
-        #expect(await source.read(release, visible: true, at: at(101)) != nil)
-        #expect(calls.count == 1)
     }
 
     // Mutation: leave out `--docker`; red. The app runs coreslot alone: it needs no `docker` on its PATH.
     @Test func itRunsCoreslotWithTheFlagAndNothingElse() async {
         let calls = Calls(), source = DockerSource(runner: calls.runner)
-        _ = await source.read(release, visible: true, at: at(0))
+        _ = await source.read(release, at: at(0))
         let (exe, args) = calls.list.withLock { $0[0] }
         #expect(exe == release.url && args == ["status", "--json", "--docker"])
     }
@@ -193,8 +183,8 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
             return await inner.run(exe, args, environment: env, timeout: t)
         }
         let source = DockerSource(runner: slow)
-        async let a = source.read(release, visible: true, at: at(0))
-        async let b = source.read(release, visible: true, at: at(1))
+        async let a = source.read(release, at: at(0))
+        async let b = source.read(release, at: at(1))
         let got = await [a, b]
         #expect(got.compactMap { $0 }.count == 1 && calls.count == 1)
     }
@@ -240,12 +230,12 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         let (bin, url) = try binary()
         defer { try? FileManager.default.removeItem(at: url) }
         let t = Date(timeIntervalSince1970: 1_000_000)
-        #expect(await source.read(bin, visible: true, at: t) == .unsupported)
-        #expect(await source.read(bin, visible: true, at: t + 31) == nil)
-        #expect(await source.read(bin, visible: true, at: t + 300) == nil)
+        #expect(await source.read(bin, at: t) == .unsupported)
+        #expect(await source.read(bin, at: t + 31) == nil)
+        #expect(await source.read(bin, at: t + 300) == nil)
         #expect(count.withLock { $0 } == 1)
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 5)], ofItemAtPath: url.path)
-        #expect(await source.read(bin, visible: true, at: t + 400) == .unsupported)
+        #expect(await source.read(bin, at: t + 400) == .unsupported)
         #expect(count.withLock { $0 } == 2)
     }
 }

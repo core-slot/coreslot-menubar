@@ -109,8 +109,7 @@ package func interpretDocker(_ r: RunResult) -> DockerReading {
     }
 }
 
-/// Reads `coreslot status --json --docker` for the popover, at most once in 30 s and only while a
-/// surface is visible. The app runs `coreslot` alone: it needs no `docker` on its `PATH`, and the
+/// Reads `coreslot status --json --docker` for the popover, at most once in 30 s. The app runs `coreslot` alone: it needs no `docker` on its `PATH`, and the
 /// socket is coreslot's to read.
 package actor DockerSource {
     package static let every: TimeInterval = 30
@@ -122,12 +121,12 @@ package actor DockerSource {
 
     package init(runner: Runner = .process) { self.runner = runner }
 
-    /// The reading, or nil when not asked for now: hidden, one taken less than 30 s ago, or one in
-    /// flight. The time is noted before the run, so a slow run is not asked twice.
-    package func read(_ binary: CoreslotBinary, visible: Bool, at now: Date) async -> DockerReading? {
+    /// The reading, or nil when not asked for now: one taken less than 30 s ago, or one in flight.
+    /// The caller asks only while a surface is visible (`Store.ingest`). The time is noted before the run, so a slow run is not asked twice.
+    package func read(_ binary: CoreslotBinary, at now: Date) async -> DockerReading? {
         let identity = StatusSource.identity(binary.url)
         if let r = refused, r.url == binary.url, r.identity == identity { return nil }
-        guard visible, last.map({ now.timeIntervalSince($0) >= Self.every }) ?? true else { return nil }
+        guard last.map({ now.timeIntervalSince($0) >= Self.every }) ?? true else { return nil }
         last = now
         let reading = interpretDocker(await runner.run(binary.url, ["status", "--json", "--docker"], environment: nil, timeout: .seconds(10)))
         refused = reading == .unsupported ? identity.map { (binary.url, $0) } : nil

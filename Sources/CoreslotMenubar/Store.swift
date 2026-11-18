@@ -270,7 +270,7 @@ final class Store {
         dockerSource = source
         let (generation, at) = (generation, feed.clock())
         Task {
-            guard let r = await source.read(binary, visible: true, at: at), generation == self.generation else { return }
+            guard let r = await source.read(binary, at: at), generation == self.generation else { return }
             docker = r
         }
     }
