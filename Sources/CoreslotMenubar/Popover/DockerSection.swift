@@ -7,6 +7,7 @@ struct DockerSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            Text("Docker").font(.subheadline.weight(.semibold))
             if let vm = model.vm {
                 Text(vm).font(.callout.weight(.semibold)).monospacedDigit()
             }
@@ -23,6 +24,7 @@ struct DockerSection: View {
                     Text(row.usage).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
+            if let more = model.more { Text(more).font(.caption).foregroundStyle(.secondary) }
             ForEach(model.warnings, id: \.self) { w in
                 Label(w, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
             }

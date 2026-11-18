@@ -8,10 +8,12 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
-- A Docker section in the popover: Docker Desktop's VM and one row per running container, from
-  `coreslot status --json --docker`. The app asks at most once in 30 s and only while the popover
-  or the timeline is open, and runs `coreslot` alone: it needs no `docker` on its `PATH`. When
-  coreslot has no reading, the section says why.
+- A Docker section in the popover, below the lists: Docker Desktop's VM and the eight containers
+  using the most memory, from `coreslot status --json --docker`. The app asks at most once in
+  30 s and only while the popover or the timeline is open, and runs `coreslot` alone: it needs no
+  `docker` on its `PATH`. The section says why when another engine runs or coreslot could not
+  read Docker, and is absent without Docker, with Docker reading turned off, and with a coreslot
+  that does not know `--docker`, which is not asked again until its file changes.
 
 ## v0.1.1 (2026-11-13)
 

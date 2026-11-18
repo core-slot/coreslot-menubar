@@ -65,7 +65,9 @@ process name of the `memory` lines with `proc-1`, `proc-2`, …, and refuses to 
 holds another label, your user name or your home directory. Read the diff before committing it.
 
 `status-0.7.0.json` is not from the script: it is a 0.8.0 fixture with the keys 0.8.0 added
-removed by hand, so the tests cover an older coreslot.
+removed by hand, so the tests cover an older coreslot. `docker-ok.json` is also by hand: the
+`status --json --docker` keys the app reads, with made-up container names, because a real Docker
+Desktop state is not repeatable and its names and images are not ours to publish.
 
 ## Looking at the UI
 

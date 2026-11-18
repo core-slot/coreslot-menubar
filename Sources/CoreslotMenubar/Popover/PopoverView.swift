@@ -27,13 +27,13 @@ struct PopoverView: View {
                 Divider()
                 MemorySection(model: live.memory)
                 Divider()
+                ListsSection(store: store, live: live)
+                Divider()
                 let docker = DockerModel(store.docker)
                 if !docker.isEmpty {
                     DockerSection(model: docker)
                     Divider()
                 }
-                ListsSection(store: store, live: live)
-                Divider()
                 RecentStrip(model: live.strip)
                 Divider()
                 FooterView(totals: live.totals, openTimeline: openTimeline)

@@ -54,11 +54,9 @@ package struct DockerStatus: Sendable, Equatable {
 /// What one run of `coreslot status --json --docker` says.
 package enum DockerReading: Sendable, Equatable {
     case section(DockerStatus)
-    /// A document without a `docker` object: a coreslot that does not know `--docker`.
-    case absent
     /// A coreslot that does not know `--docker`: its usage error, exit 64 with nothing on stdout
     /// (the usage goes to stderr, which the app does not keep; the app passes no other argument
-    /// `status` could refuse). The section is not drawn.
+    /// `status` could refuse), or a document without a `docker` object. The section is not drawn.
     case unsupported
     case problem(Problem)
 }
@@ -104,7 +102,7 @@ package func interpretDocker(_ r: RunResult) -> DockerReading {
     }
     do {
         let doc = try JSONDecoder().decode(DockerDocument.self, from: r.stdout)
-        guard let d = doc.docker else { return .absent }
+        guard let d = doc.docker else { return .unsupported }
         return .section(DockerStatus(state: d.state, reason: d.reason, vm: d.vm, freeEstMiB: d.freeEstMiB, containers: d.containers, warnings: doc.warnings))
     } catch {
         return .problem(.malformed)
@@ -135,7 +133,4 @@ package actor DockerSource {
         refused = reading == .unsupported ? identity.map { (binary.url, $0) } : nil
         return reading
     }
-
-    /// Forgets the last read, as when another `coreslot` is chosen.
-    package func reset() { (last, refused) = (nil, nil) }
 }

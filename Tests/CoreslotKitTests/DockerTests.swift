@@ -22,7 +22,7 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
     // Mutation: drop the VM line's process part; red.
     @Test func theVMLineAndOneRowPerContainer() throws {
         let m = DockerModel(try reading())
-        #expect(m.vm == "Docker VM 15.6 GiB · VM process 16.1 GiB · about 13.5 GiB free")
+        #expect(m.vm == "Docker VM 15.6 GiB · VM process 16.1 GiB · about 14.4 GiB free")
         #expect(m.rows.map(\.name) == ["ci-job-1", "shop-web-1", "shop-redis-1"])
         #expect(m.rows.map(\.detail) == ["ci/app:abc123", "shop-web · shop", "redis:7.4-alpine · shop"])
         #expect(m.rows[0].usage == "1.1 GiB of 4 GiB")
@@ -35,16 +35,13 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         let m = DockerModel(try reading(docker { d in
             d["vm"] = ["mem_mib": 16009, "identified": false, "footprint_mib": 16494]
         }))
-        #expect(m.vm == "Docker VM 15.6 GiB · about 13.5 GiB free")
+        #expect(m.vm == "Docker VM 15.6 GiB · about 14.4 GiB free")
     }
 
-    // Mutation: say the reason of every state as the one of `no_reading`; red.
+    // Mutation: say the reason of every state as the one of `no_reading`; red. `off` and
+    // `not_running` are in the next test: nothing is drawn for them.
     @Test(arguments: [
-        ("not_running", "", "Docker Desktop is not running"),
         ("other_engine", "", "Another Docker engine is running: there is no Docker Desktop VM to show"),
-        ("off", "config", "Docker reading is turned off in coreslot's configuration"),
-        ("off", "platform", "Docker reading is not available on this platform"),
-        ("off", "remote-host", "Docker reading is off: DOCKER_HOST points at a remote engine"),
         ("no_reading", "deadline", "Docker did not answer in time"),
         ("no_reading", "parse", "Docker's answer could not be read"),
         ("no_reading", "weird\u{7}", "Docker could not be read (weird\\u{0007})"),
@@ -62,6 +59,30 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         #expect(m.note == text)
     }
 
+    // Mutation: draw a note for `off` or `not_running`; a machine without Docker then carries a Docker line, red.
+    @Test(arguments: [("not_running", ""), ("off", "config"), ("off", "remote-host")])
+    func noDockerShowsNothing(_ state: String, _ reason: String) throws {
+        let m = DockerModel(try reading(docker { d in
+            d["state"] = state
+            d["reason"] = reason
+            d["vm"] = ["mem_mib": NSNull(), "identified": false, "footprint_mib": NSNull()]
+            d["free_est_mib"] = NSNull()
+            d["containers"] = [Any]()
+        }))
+        #expect(m.isEmpty)
+    }
+
+    // Mutation: show every container, or the first eight in the engine's order; red.
+    @Test func onlyTheEightBiggestAreShown() throws {
+        let m = DockerModel(try reading(docker { d in
+            d["containers"] = (0..<12).map { i in
+                ["id": String(repeating: "a", count: 64), "name": "c\(i)", "image": "img", "project": "", "usage_mib": i * 10, "limit_mib": 100] as [String: Any]
+            }
+        }))
+        #expect(m.rows.map(\.name) == (4...11).reversed().map { "c\($0)" })
+        #expect(m.more == "+4 more")
+    }
+
     // Mutation: print an engine's strings unescaped; red.
     @Test func anEnginesStringsAreEscaped() throws {
         let m = DockerModel(try reading(docker { d in
@@ -72,6 +93,7 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         #expect(m.rows[0].name == "a\\u{001B}[31mb")
     }
 
+    // Mutation: drop the note; an empty section draws a bare VM line, red.
     @Test func noContainersSaysSo() throws {
         let m = DockerModel(try reading(docker { $0["containers"] = [Any]() }))
         #expect(m.rows.isEmpty && m.note == "No containers running")
@@ -83,11 +105,12 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         #expect(m.warnings == ["[docker] enabled: not a boolean"])
     }
 
+    // Mutation: draw a section for a reading never taken; red.
     @Test func nothingAskedShowsNothing() {
         #expect(DockerModel(nil).isEmpty)
-        #expect(DockerModel(.absent).isEmpty)
     }
 
+    // Mutation: name another command in the words; red.
     @Test func aProblemIsSaidInWords() {
         #expect(DockerModel(.problem(.timedOut)).note == "coreslot status --docker did not answer in time")
     }
@@ -105,11 +128,12 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
     }
 
     // Mutation: treat a document without `docker` as malformed; red.
-    @Test func aCoreslotWithoutTheKeyIsAbsent() throws {
+    @Test func aDocumentWithoutTheKeyIsUnsupported() throws {
         let data = try Fixture.data("status-queue.json")
-        #expect(interpretDocker(RunResult(exitCode: 0, stdout: data)) == .absent)
+        #expect(interpretDocker(RunResult(exitCode: 0, stdout: data)) == .unsupported)
     }
 
+    // Mutation: map a timeout to a failed exit, or a missing file to a timeout; red.
     @Test func failuresAreProblems() {
         #expect(interpretDocker(RunResult(exitCode: nil)) == .problem(.notFound))
         #expect(interpretDocker(RunResult(exitCode: 0, timedOut: true)) == .problem(.timedOut))
@@ -173,14 +197,6 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         async let b = source.read(release, visible: true, at: at(1))
         let got = await [a, b]
         #expect(got.compactMap { $0 }.count == 1 && calls.count == 1)
-    }
-
-    // Mutation: keep the last read through `reset`; red.
-    @Test func resetAllowsAReadAtOnce() async {
-        let calls = Calls(), source = DockerSource(runner: calls.runner)
-        _ = await source.read(release, visible: true, at: at(0))
-        await source.reset()
-        #expect(await source.read(release, visible: true, at: at(1)) != nil)
     }
 }
 
