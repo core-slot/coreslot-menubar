@@ -6,6 +6,16 @@ All notable changes to this project are recorded here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The popover's memory says what is free for new commands beside the memory it is taken from,
+  on a line of its own: "2.4 GiB free for new commands of 15.2 GiB available". The available
+  memory is coreslot's headroom, what macOS can hand out now without paging, which is the
+  machine's memory less the memory in use shown above it. coreslot's reserve and what its running
+  commands may still grow into (set aside) come off it before anything is free for a new command,
+  so a machine that looks half empty in a memory monitor can have nothing free for one. The
+  legend names its free part "free for new commands" too.
+
 ## v0.1.1 (2026-11-13)
 
 ### Added

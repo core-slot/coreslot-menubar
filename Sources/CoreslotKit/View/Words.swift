@@ -3,6 +3,18 @@ import Foundation
 /// The app's fixed English for coreslot's closed codes. Text from coreslot inside a sentence goes
 /// through `SafeText`.
 package enum Words {
+    /// The room a new command may take, by the same name in the header and in the legend.
+    package static let freeForNewCommands = "free for new commands"
+
+    /// The header's free memory: the room for new commands, and beside it the headroom it is
+    /// taken from, what macOS can hand out now before coreslot's reserve and what the holds may
+    /// still grow into: the machine's memory less the memory in use the header shows.
+    package static func free(_ mem: StatusDocument.Mem) -> String {
+        let room = "\(Formatting.size(mem.freeMiB)) \(freeForNewCommands)"
+        guard let headroom = mem.headroomMiB else { return room }
+        return room + " of \(Formatting.size(min(max(0, headroom), mem.machineMiB ?? .max))) available"
+    }
+
     /// The watchdog's level in words. An empty level is no sample in the last 6 s, which is idle
     /// while no hold is live.
     package static func level(_ doc: StatusDocument) -> String {
