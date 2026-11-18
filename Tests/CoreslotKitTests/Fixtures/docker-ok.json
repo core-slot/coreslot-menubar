@@ -12,7 +12,7 @@
     "free_est_mib": 14708,
     "containers": [
       {
-        "id": "5d3397e8b0b25f8e36bd9b9c70fcb580d13970e2564e6e587f11cd771315f655",
+        "id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
         "name": "ci-job-1",
         "image": "ci/app:abc123",
         "project": "",
@@ -20,7 +20,7 @@
         "limit_mib": 4096
       },
       {
-        "id": "72d6d65fa773d64fa369522f273bff62a8116136182eba8aac3c8df33668f575",
+        "id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
         "name": "shop-web-1",
         "image": "shop-web",
         "project": "shop",
@@ -28,7 +28,7 @@
         "limit_mib": 16009
       },
       {
-        "id": "d02deb01a1388b0c3a03104da41f7230fa2fbd2baaf0876b128b234d6bf08477",
+        "id": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
         "name": "shop-redis-1",
         "image": "redis:7.4-alpine",
         "project": "shop",
