@@ -44,6 +44,8 @@ final class Store {
     private(set) var record = RecordSnapshot()
     private(set) var recordState: RecordState = .unknown
     private(set) var report: Report?
+    /// The last `status --docker` reading; nil until one is taken.
+    private(set) var docker: DockerReading?
     private(set) var labelColors = LabelColors()
     /// Holds whose process the app could not read: no stop button, and the quiet line says so.
     /// Only the popover shows it, so it is read only while the popover is visible.
@@ -63,6 +65,8 @@ final class Store {
     @ObservationIgnored private var holdLiveSince: Date?
     @ObservationIgnored private var reportAt: Date?
     @ObservationIgnored private var reportTask: Task<Void, Never>?
+    /// Asks for `status --docker` at most once in 30 s, and only while a surface is visible.
+    @ObservationIgnored private var dockerSource: DockerSource?
     /// One confirmation at a time.
     @ObservationIgnored private var acting = false
     /// Counts the restarts a new choice in Settings makes; what an older loop brings is dropped.
@@ -106,6 +110,7 @@ final class Store {
         generation += 1
         loop?.cancel()
         (loop, source, binary, report, reportAt, reportTask) = (nil, nil, nil, nil, nil, nil)
+        (docker, dockerSource) = (nil, nil)
         (lastSample, holdLiveSince) = (nil, nil)
         transitions.restarted()
         start()
@@ -244,7 +249,10 @@ final class Store {
         let summary = doc.map { "holds \($0.holds.count) tickets \($0.tickets.count) attempts \(snapshot.runs.attempts.count)" } ?? "no document"
         Present.log("reading \(icon) \(summary) record \(recordState)")
         #endif
-        if !visible.isEmpty { refreshReport() }
+        if !visible.isEmpty {
+            refreshReport()
+            refreshDocker()
+        }
         #if DEBUG
         if let label = Present.askStop, let h = doc?.holds.first(where: { $0.label == label && $0.stoppable == true }) {
             Present.askStop = nil
@@ -254,6 +262,18 @@ final class Store {
     }
 
     private func checkHolds() { unchecked = Set((document?.holds ?? []).filter { !canInspect($0, inspector: feed.inspector) }.map(\.name)) }
+
+    /// `coreslot status --json --docker`; the source keeps it to once in 30 s while a surface is visible.
+    private func refreshDocker() {
+        guard let binary else { return }
+        let source = dockerSource ?? DockerSource(runner: runner)
+        dockerSource = source
+        let (generation, at) = (generation, feed.clock())
+        Task {
+            guard let r = await source.read(binary, visible: true, at: at), generation == self.generation else { return }
+            docker = r
+        }
+    }
 
     /// `coreslot report --days 1 --json`, at most once a minute: coreslot does the counting.
     private func refreshReport() {
