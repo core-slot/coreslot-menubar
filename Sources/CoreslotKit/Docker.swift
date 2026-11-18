@@ -113,6 +113,16 @@ package func interpretDocker(_ r: RunResult) -> DockerReading {
 /// socket is coreslot's to read.
 package actor DockerSource {
     package static let every: TimeInterval = 30
+    /// The oldest reading drawn. While a surface stays open one is taken every 30 s, and a run
+    /// gives up after 10 s, so only a reading from before the surface was last closed is older.
+    package static let shownFor: TimeInterval = 60
+
+    /// The reading taken at `taken`, or nil once it is older than `shownFor`: its figures may no
+    /// longer hold, and the next reading replaces it within seconds.
+    package static func shown(_ reading: DockerReading?, taken: Date?, now: Date) -> DockerReading? {
+        guard let taken, now.timeIntervalSince(taken) <= shownFor else { return nil }
+        return reading
+    }
 
     private let runner: Runner
     private var last: Date?

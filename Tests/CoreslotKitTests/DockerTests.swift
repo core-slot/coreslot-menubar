@@ -38,9 +38,10 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         #expect(m.vm == "Docker VM 15.6 GiB · about 14.4 GiB free")
     }
 
-    // Mutation: say the reason of every state as the one of `no_reading`; red. `off` and
-    // `not_running` are in the next test: nothing is drawn for them.
+    // Mutation: say the reason of every state as the one of `no_reading`; red. `off` is in the
+    // next test: nothing is drawn for it.
     @Test(arguments: [
+        ("not_running", "", "No Docker Desktop VM on the Apple hypervisor is running. Docker VMM, OrbStack and Colima are not read"),
         ("other_engine", "", "Another Docker engine is running: there is no Docker Desktop VM to show"),
         ("no_reading", "deadline", "Docker did not answer in time"),
         ("no_reading", "parse", "Docker's answer could not be read"),
@@ -59,8 +60,8 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         #expect(m.note == text)
     }
 
-    // Mutation: draw a note for `off` or `not_running`; a machine without Docker then carries a Docker line, red.
-    @Test(arguments: [("not_running", ""), ("off", "config"), ("off", "remote-host")])
+    // Mutation: draw a note for `off`; a machine with Docker reading turned off then carries a Docker line, red.
+    @Test(arguments: [("off", "config"), ("off", "remote-host")])
     func noDockerShowsNothing(_ state: String, _ reason: String) throws {
         let m = DockerModel(try reading(docker { d in
             d["state"] = state
@@ -155,6 +156,16 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
     }
 
     private func at(_ s: Double) -> Date { Date(timeIntervalSince1970: 1_000_000 + s) }
+
+    // Mutation: drop the age check in `shown`, or compare with `every`; the reading at 61 s is
+    // drawn, or the one at 45 s is not, red.
+    @Test func aReadingOlderThanAMinuteIsNotDrawn() throws {
+        let r = try reading()
+        #expect(DockerSource.shown(r, taken: at(0), now: at(45)) == r)
+        #expect(DockerSource.shown(r, taken: at(0), now: at(60)) == r)
+        #expect(DockerSource.shown(r, taken: at(0), now: at(61)) == nil)
+        #expect(DockerSource.shown(r, taken: nil, now: at(0)) == nil)
+    }
 
     // Mutation: drop the 30 s check; the read at 10 s runs too, red.
     @Test func atMostOneReadPer30Seconds() async {

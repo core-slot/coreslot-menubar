@@ -92,6 +92,12 @@ enum Present {
             }
         }),
         .init(name: "docker-other-engine", docker: { edit(&$0, "docker") { $0["state"] = "other_engine" } }),
+        .init(name: "docker-not-running", docker: { edit(&$0, "docker") { d in
+            d["state"] = "not_running"
+            d["free_est_mib"] = NSNull()
+            d["containers"] = [Any]()
+            d["vm"] = ["mem_mib": NSNull(), "identified": false, "footprint_mib": NSNull()]
+        } }),
         .init(name: "night", night: true),
         .init(name: "record-off-night", record: .looksOff, night: true),
     ]

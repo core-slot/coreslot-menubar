@@ -44,8 +44,10 @@ final class Store {
     private(set) var record = RecordSnapshot()
     private(set) var recordState: RecordState = .unknown
     private(set) var report: Report?
-    /// The last `status --docker` reading; nil until one is taken.
+    /// The last `status --docker` reading; nil until one is taken. Draw `dockerShown`.
     private(set) var docker: DockerReading?
+    /// When `docker` was asked for.
+    private(set) var dockerAt: Date?
     private(set) var labelColors = LabelColors()
     /// Holds whose process the app could not read: no stop button, and the quiet line says so.
     /// Only the popover shows it, so it is read only while the popover is visible.
@@ -111,13 +113,17 @@ final class Store {
         generation += 1
         loop?.cancel()
         (loop, source, binary, report, reportAt, reportTask) = (nil, nil, nil, nil, nil, nil)
-        (docker, dockerSource) = (nil, nil)
+        (docker, dockerAt, dockerSource) = (nil, nil, nil)
         (lastSample, holdLiveSince) = (nil, nil)
         transitions.restarted()
         start()
     }
 
     var now: Date { feed.clock() }
+
+    /// The Docker reading to draw: none once it is older than `DockerSource.shownFor`, as one
+    /// taken before the popover was last closed is.
+    var dockerShown: DockerReading? { DockerSource.shown(docker, taken: dockerAt, now: now) }
 
     var icon: IconState { reading.map(IconState.init) ?? .idle }
 
@@ -273,7 +279,7 @@ final class Store {
         let (generation, at) = (generation, feed.clock())
         dockerTask = Task {
             guard let r = await source.read(binary, at: at), generation == self.generation else { return }
-            docker = r
+            (docker, dockerAt) = (r, at)
             #if DEBUG
             let model = DockerModel(r)
             Present.log("docker \(model.vm ?? model.note ?? "none") rows \(model.rows.count) \(model.more ?? "")")

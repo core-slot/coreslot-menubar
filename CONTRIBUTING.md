@@ -98,7 +98,8 @@ looking off, `record-off`; holds reserving more than the machine has, `shortfall
 degraded reason with control, bidirectional, zero-width and tag characters and a container hold,
 `untrusted`; more rows than the popover shows unscrolled, `many`; holds whose process the app
 cannot read, `unchecked`; the Docker section over `docker-ok.json`, `docker`, with twelve
-containers, `docker-many`, and with another engine, `docker-other-engine` (the others answer
+containers, `docker-many`, with another engine, `docker-other-engine`, and with no Docker
+Desktop VM on the Apple hypervisor, `docker-not-running` (the others answer
 `--docker` as a coreslot that does not know it); two hours of made-up record before the queue's moment, with waits and
 their reasons, a watchdog stop and its restart, a run past its timeout, a silence and a failed
 reading, `night`, written under the temporary directory, and the same with the record looking off,

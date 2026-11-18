@@ -22,8 +22,8 @@ package struct DockerModel: Equatable, Sendable {
     /// The most containers drawn, the biggest by usage first.
     package static let shown = 8
 
-    /// Nothing was asked for, the coreslot does not know `--docker`, or Docker is `off` or
-    /// `not_running` (no Docker to report on): the section is not drawn.
+    /// Nothing was asked for, the coreslot does not know `--docker`, or Docker reading is `off`
+    /// (turned off, or not for this machine): the section is not drawn.
     package var isEmpty: Bool { vm == nil && rows.isEmpty && note == nil && warnings.isEmpty }
 
     package init(_ reading: DockerReading?) {
@@ -33,7 +33,7 @@ package struct DockerModel: Equatable, Sendable {
         case .section(let s)?:
             warnings = s.warnings.map(SafeText.display)
             guard s.state == "ok" else {
-                if s.state != "off" && s.state != "not_running" { note = Words.docker(state: s.state, reason: s.reason) }
+                if s.state != "off" { note = Words.docker(state: s.state, reason: s.reason) }
                 return
             }
             var parts = s.vm.memMiB.map { ["Docker VM " + Formatting.size($0)] } ?? ["Docker VM"]
@@ -56,6 +56,8 @@ extension Words {
     /// What a `docker.state` other than `ok` says, with its `reason` where it has one.
     package static func docker(state: String, reason: String) -> String {
         switch (state, reason) {
+        // coreslot finds only Docker Desktop's VM on the Apple hypervisor, so Docker on Docker VMM reads as this too.
+        case ("not_running", _): "No Docker Desktop VM on the Apple hypervisor is running. Docker VMM, OrbStack and Colima are not read"
         case ("other_engine", _): "Another Docker engine is running: there is no Docker Desktop VM to show"
         case ("no_reading", "deadline"): "Docker did not answer in time"
         case ("no_reading", "parse"): "Docker's answer could not be read"
