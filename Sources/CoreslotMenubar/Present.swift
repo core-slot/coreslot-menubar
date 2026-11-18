@@ -88,7 +88,7 @@ enum Present {
         .init(name: "docker", docker: { _ in }),
         .init(name: "docker-many", docker: { raw in
             edit(&raw, "docker") { d in
-                d["containers"] = (1...12).map { ["id": String(repeating: "a", count: 64), "name": "service-\($0)-1", "image": "registry/service-\($0):1.\($0)", "project": "shop", "usage_mib": $0 * 90, "limit_mib": 16009] as [String: Any] }
+                d["containers"] = (1...12).map { ["id": String(format: "%064x", $0), "name": "service-\($0)-1", "image": "registry/service-\($0):1.\($0)", "project": "shop", "usage_mib": $0 * 90, "limit_mib": 16009] as [String: Any] }
             }
         }),
         .init(name: "docker-other-engine", docker: { edit(&$0, "docker") { $0["state"] = "other_engine" } }),
