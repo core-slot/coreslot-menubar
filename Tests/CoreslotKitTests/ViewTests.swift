@@ -120,6 +120,20 @@ private func mem(_ raw: inout [String: Any], _ key: String, _ value: Any) {
 }
 
 @Suite struct WordsTests {
+    // Mutation: leave out the headroom, or give `free_mib` or the unclamped headroom as it; red.
+    @Test func theFreeMemoryAndWhatItIsTakenFrom() throws {
+        let doc = try document("status-queue.json") { raw in
+            mem(&raw, "free_mib", 0)
+            mem(&raw, "headroom_mib", 15_616)
+            mem(&raw, "machine_mib", 49_152)
+        }
+        #expect(Words.free(try #require(doc.mem)) == "0 MiB free for new commands of 15.3 GiB available")
+        let below = try document("status-queue.json") { mem(&$0, "free_mib", 0); mem(&$0, "headroom_mib", -300) }
+        #expect(Words.free(try #require(below.mem)) == "0 MiB free for new commands of 0 MiB available")
+        let older = try document("status-queue.json") { mem(&$0, "headroom_mib", NSNull()) }
+        #expect(Words.free(try #require(older.mem)) == "\(Formatting.size(older.mem!.freeMiB)) free for new commands")
+    }
+
     // The idle fixture has no hold; the queue fixture has two.
     // Mutation: say "Learning" for green whenever `learning` > 0; the idle machine after a run, red.
     // Mutation: say "No recent reading" for an empty level whatever the holds; the idle case, red.
