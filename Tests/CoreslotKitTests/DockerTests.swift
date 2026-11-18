@@ -113,7 +113,7 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
     @Test func failuresAreProblems() {
         #expect(interpretDocker(RunResult(exitCode: nil)) == .problem(.notFound))
         #expect(interpretDocker(RunResult(exitCode: 0, timedOut: true)) == .problem(.timedOut))
-        #expect(interpretDocker(RunResult(exitCode: 64)) == .problem(.failed(exitCode: 64)))
+        #expect(interpretDocker(RunResult(exitCode: 70)) == .problem(.failed(exitCode: 70)))
         #expect(interpretDocker(RunResult(exitCode: 0, stdout: Data("{".utf8))) == .problem(.malformed))
     }
 }
@@ -181,5 +181,55 @@ private func docker(_ change: @escaping (inout [String: Any]) -> Void) -> (inout
         _ = await source.read(release, visible: true, at: at(0))
         await source.reset()
         #expect(await source.read(release, visible: true, at: at(1)) != nil)
+    }
+}
+
+/// A coreslot that does not know `--docker` prints its usage on stderr, which the app does not
+/// keep, and exits 64 with nothing on stdout. The app passes no argument that could earn a usage
+/// error but that one.
+@Suite struct DockerUnsupportedTests {
+    private let usageError = RunResult(exitCode: 64)
+
+    // Mutation: leave 64 to `.failed`; the section then shows a note, red.
+    @Test func aUsageErrorIsUnsupportedAndShowsNothing() {
+        #expect(interpretDocker(usageError) == .unsupported)
+        #expect(DockerModel(.unsupported).isEmpty)
+    }
+
+    // Mutation: call every exit 64 unsupported even with a document on stdout; red.
+    @Test func otherFailuresKeepTheirNote() throws {
+        #expect(interpretDocker(RunResult(exitCode: 70)) == .problem(.failed(exitCode: 70)))
+        #expect(interpretDocker(RunResult(exitCode: 0, timedOut: true)) == .problem(.timedOut))
+        let data = try Fixture.data("docker-ok.json")
+        guard case .section = interpretDocker(RunResult(exitCode: 64, stdout: data)) else {
+            Issue.record("a document is a reading")
+            return
+        }
+    }
+
+    private func binary() throws -> (CoreslotBinary, URL) {
+        let url = FileManager.default.temporaryDirectory.appending(path: "coreslot-docker-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: url)
+        return (CoreslotBinary(url: url, version: Version(0, 8, 0)), url)
+    }
+
+    // Mutation: forget the refusal after one read; the next ask runs again, red.
+    // Mutation: key the refusal on the path alone; a replaced file is never asked, red.
+    @Test func itStopsAskingUntilTheBinaryChanges() async throws {
+        let count = Mutex(0)
+        let source = DockerSource(runner: Runner { _, _, _, _ in
+            count.withLock { $0 += 1 }
+            return RunResult(exitCode: 64)
+        })
+        let (bin, url) = try binary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let t = Date(timeIntervalSince1970: 1_000_000)
+        #expect(await source.read(bin, visible: true, at: t) == .unsupported)
+        #expect(await source.read(bin, visible: true, at: t + 31) == nil)
+        #expect(await source.read(bin, visible: true, at: t + 300) == nil)
+        #expect(count.withLock { $0 } == 1)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 5)], ofItemAtPath: url.path)
+        #expect(await source.read(bin, visible: true, at: t + 400) == .unsupported)
+        #expect(count.withLock { $0 } == 2)
     }
 }

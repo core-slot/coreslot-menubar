@@ -22,7 +22,7 @@ package struct DockerModel: Equatable, Sendable {
 
     package init(_ reading: DockerReading?) {
         switch reading {
-        case nil, .absent?: return
+        case nil, .absent?, .unsupported?: return
         case .problem(let p)?: note = Words.problem(p, command: "status --docker").state
         case .section(let s)?:
             warnings = s.warnings.map(SafeText.display)

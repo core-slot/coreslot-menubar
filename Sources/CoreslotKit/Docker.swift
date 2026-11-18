@@ -56,6 +56,10 @@ package enum DockerReading: Sendable, Equatable {
     case section(DockerStatus)
     /// A document without a `docker` object: a coreslot that does not know `--docker`.
     case absent
+    /// A coreslot that does not know `--docker`: its usage error, exit 64 with nothing on stdout
+    /// (the usage goes to stderr, which the app does not keep; the app passes no other argument
+    /// `status` could refuse). The section is not drawn.
+    case unsupported
     case problem(Problem)
 }
 
@@ -95,6 +99,7 @@ package func interpretDocker(_ r: RunResult) -> DockerReading {
     if r.timedOut { return .problem(.timedOut) }
     guard let code = r.exitCode else { return .problem(.notFound) }
     guard r.stdout.contains(where: { $0 != 0x20 && $0 != 0x0a && $0 != 0x0d && $0 != 0x09 }) else {
+        if code == 64 { return .unsupported }
         return .problem(code == 3 ? .stateUnreadable : .failed(exitCode: code))
     }
     do {
@@ -114,17 +119,23 @@ package actor DockerSource {
 
     private let runner: Runner
     private var last: Date?
+    /// The file of a `coreslot` that refused `--docker`: not asked again while it is the same file.
+    private var refused: (url: URL, identity: [Int64])?
 
     package init(runner: Runner = .process) { self.runner = runner }
 
     /// The reading, or nil when not asked for now: hidden, one taken less than 30 s ago, or one in
     /// flight. The time is noted before the run, so a slow run is not asked twice.
     package func read(_ binary: CoreslotBinary, visible: Bool, at now: Date) async -> DockerReading? {
+        let identity = StatusSource.identity(binary.url)
+        if let r = refused, r.url == binary.url, r.identity == identity { return nil }
         guard visible, last.map({ now.timeIntervalSince($0) >= Self.every }) ?? true else { return nil }
         last = now
-        return interpretDocker(await runner.run(binary.url, ["status", "--json", "--docker"], environment: nil, timeout: .seconds(10)))
+        let reading = interpretDocker(await runner.run(binary.url, ["status", "--json", "--docker"], environment: nil, timeout: .seconds(10)))
+        refused = reading == .unsupported ? identity.map { (binary.url, $0) } : nil
+        return reading
     }
 
     /// Forgets the last read, as when another `coreslot` is chosen.
-    package func reset() { last = nil }
+    package func reset() { (last, refused) = (nil, nil) }
 }
